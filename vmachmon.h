@@ -310,16 +310,30 @@ enum {
 
 #define kVmmReturnNull					0
 #define kVmmBogusContext				1
-#define kVmmStopped						2
-#define kVmmReturnDataPageFault			3
-#define kVmmReturnInstrPageFault		4
-#define kVmmReturnAlignmentFault		6
-#define kVmmReturnProgramException		7
-#define kVmmReturnSystemCall			12
-#define kVmmReturnTraceException		13
+#define kVmmStopped					2
+#define kVmmReturnDataPageFault			        3
+#define kVmmReturnInstrPageFault		        4
+#define kVmmReturnAlignmentFault		        6
+#define kVmmReturnProgramException		        7
+#define kVmmReturnSystemCall			        12
+#define kVmmReturnTraceException		        13
 #define kVmmAltivecAssist				22
 #define kVmmInvalidAddress				0x1000
 #define kVmmInvalidAdSpace				0x1001
+
+#define VMM_RETURN_CODES			\
+  _VMM_RETURN_CODE(kVmmReturnNull)		\
+  _VMM_RETURN_CODE(kVmmBogusContext)		\
+  _VMM_RETURN_CODE(kVmmStopped)			\
+  _VMM_RETURN_CODE(kVmmReturnDataPageFault)	\
+  _VMM_RETURN_CODE(kVmmReturnInstrPageFault)	\
+  _VMM_RETURN_CODE(kVmmReturnAlignmentFault)	\
+  _VMM_RETURN_CODE(kVmmReturnProgramException)	\
+  _VMM_RETURN_CODE(kVmmReturnSystemCall)	\
+  _VMM_RETURN_CODE(kVmmReturnTraceException)	\
+  _VMM_RETURN_CODE(kVmmAltivecAssist)		\
+  _VMM_RETURN_CODE(kVmmInvalidAddress)		\
+  _VMM_RETURN_CODE(kVmmInvalidAdSpace)
 
 /*
  *	Notes on guest address spaces.

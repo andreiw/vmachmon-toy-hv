@@ -41,7 +41,7 @@ typedef int facility_context; // kludge #1
 // is not what we want, we will declare our own function pointer and set
 // it to the stub available in the C library.
 //
-typedef kern_return_t (* vmm_dispatch_func_t)(int, ...);
+typedef int (* vmm_dispatch_func_t)(int, ...);
 vmm_dispatch_func_t my_vmm_dispatch;
    
 // Convenience data structure for pretty-printing Vmm features
@@ -106,6 +106,23 @@ prbits32(u_int32_t u)
     for (; i--; putchar(u & 1 << i ? '1' : '0'))
         ;
     printf("\n");
+}
+
+char *
+vmm_return_code_to_string(vmm_return_code_t code)
+{
+#define _VMM_RETURN_CODE(x) case x: {		\
+    return #x;					\
+    break;					\
+  }
+
+  switch(code) {
+    VMM_RETURN_CODES
+  default:
+    return "unknown";
+  }
+
+#undef _VMM_RETURN_CODE
 }
    
 // Function to initialize a memory buffer with some machine code
@@ -282,7 +299,8 @@ int
 main(int argc, char **argv)
 {
     int i, j;
-   
+
+    vmm_return_code_t   vmm_ret;
     kern_return_t       kr;
     mach_port_t         myTask;
     unsigned long      *return_params32;
@@ -386,8 +404,8 @@ main(int argc, char **argv)
     // VM running
     //
     Printf("Mapping guest text page and switching to guest virtual machine\n");
-    kr = my_vmm_dispatch(kVmmMapExecute, vmmIndex, guestTextPage,
-                      guestTextAddress, VM_PROT_ALL);
+    vmm_ret = my_vmm_dispatch(kVmmMapExecute, vmmIndex, guestTextPage,
+			      guestTextAddress, VM_PROT_ALL);
    
     // Our demo ensures that the last instruction in the guest's text is
     // either an infinite loop or illegal. The monitor will "hang" in the case
@@ -396,8 +414,8 @@ main(int argc, char **argv)
     // this point, and the following code will be executed. Depending on the
     // exact illegal instruction, Mach's error messages may be different.
     //
-    if (kr != KERN_SUCCESS)
-        mach_error("*** vmm_map_execute32:", kr);
+    if (vmm_ret != kVmmReturnNull)
+      printf("*** vmm_map_execute: %s (%x)\n", vmm_return_code_to_string(vmm_ret), vmm_ret);
    
     Printf("Returned to vmm\n");
     Printf("Processor state:\n");
@@ -422,8 +440,8 @@ main(int argc, char **argv)
            "                         ", ppcRegs32->ppcMSR);
     prbits32(ppcRegs32->ppcMSR);
    
-    printf("  return_code          = %#08lx (%lu)\n",
-           vmmUState->return_code, vmmUState->return_code);
+    printf("  return_code          = %#08lx (%s)\n",
+           vmmUState->return_code, vmm_return_code_to_string(vmmUState->return_code));
    
     return_params32 = vmmUState->vmmRet.vmmrp32.return_params;
    
