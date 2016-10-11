@@ -377,7 +377,12 @@ main(int argc, char **argv)
     // Fetch the index returned by vmm_init_context()
     vmmIndex = vmmUState->thread_index;
     Printf("New virtual machine context initialized, index = %lu\n", vmmIndex);
-   
+
+    kr = my_vmm_dispatch(kVmmActivateXA, vmmIndex, vmmGSA);
+    if (kr != KERN_SUCCESS) {
+      mach_error("*** kVmmActivateXA not enabling GSA:", kr);
+    }
+
     // Set a convenience pointer to the VM's registers
     ppcRegs32 = &(vmmUState->vmm_proc_state.ppcRegs.ppcRegs32);
    
@@ -403,6 +408,7 @@ main(int argc, char **argv)
     // Finally, map the text page into the guest's address space, and set the
     // VM running
     //
+
     Printf("Mapping guest text page and switching to guest virtual machine\n");
     vmm_ret = my_vmm_dispatch(kVmmMapExecute, vmmIndex, guestTextPage,
 			      guestTextAddress, VM_PROT_ALL);
