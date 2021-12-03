@@ -1,6 +1,8 @@
+CC_FLAGS = -I./include
+
 all: vmm
-vmm: vmachmon32.c
-	gcc $< -o $@
+vmm: vmm.c pmem.c
+	gcc $^ $(CC_FLAGS) -o $@
 
 clean:
 	rm -f *~ *.o vmm

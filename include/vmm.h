@@ -3,10 +3,18 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <mach/mach.h>
 #include <architecture/ppc/cframe.h>
-   
+#include "types.h"
+#include "defs.h"
+
+#define OUT_ON_MACH_ERROR(msg, retval, out) \
+  if (retval != KERN_SUCCESS) { mach_error("*** " msg ":" , kr); goto out; }
+
 #ifndef _VMACHMON32_KLUDGE_
 // We need to include xnu/osfmk/ppc/vmachmon.h, which includes several other
 // kernel headers and is not really meant for inclusion in user programs.
@@ -24,3 +32,11 @@ typedef int pmap_t;           // kludge #1
 typedef int facility_context; // kludge #1
 #include "vmachmon.h"         // kludge #2
 #endif
+
+err_t pmem_init(size_t bytes);
+vm_address_t pmem_base();
+size_t pmem_size();
+void pmem_to(gra_t dest, void *src, size_t bytes);
+void pmem_from(void *dest, gra_t src, size_t bytes);
+
+#undef ERR_DEF
