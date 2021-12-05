@@ -1,4 +1,6 @@
 #include "vmm.h"
+#define LOG_PFX PMEM
+#include "log.h"
 
 static vm_address_t pmem;
 static size_t pmem_bytes;
@@ -21,7 +23,7 @@ err_t pmem_init(size_t bytes)
 
   mt = mach_task_self();
   kr = vm_allocate(mt, &pmem, pmem_bytes, VM_FLAGS_ANYWHERE);
-  OUT_ON_MACH_ERROR("pmem_init vm_allocate", kr, err);
+  ON_MACH_ERROR("pmem_init vm_allocate", kr, err);
 
   return ERR_NONE;
 err:

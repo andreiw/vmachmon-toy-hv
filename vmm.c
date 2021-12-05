@@ -2,6 +2,7 @@
 // Mac OS X Virtual Machine Monitor (Vmm) facility demonstration
 
 #include "vmm.h"
+#include "log.h"
 #include "ppc-defs.h"
    
 // vmm_dispatch() is a PowerPC-only system call that allows us to invoke
@@ -36,23 +37,6 @@ struct VmmFeature {
     { kVmmFeature_MultAddrSpaceAssist, "MultAddrSpaceAssist" },
     { -1, NULL },
 };
-   
-// For Vmm messages that we print
-#define Printf(fmt, ...) printf("Vmm> " fmt, ## __VA_ARGS__)
-
-// Print the bits of a 32-bit number
-void
-prbits32(u_int32_t u)
-{
-    u_int32_t i = 32;
-   
-    for (; i > 16 && i--; putchar(u & 1 << i ? '1' : '0'))
-        ;
-    printf(" ");
-    for (; i--; putchar(u & 1 << i ? '1' : '0'))
-        ;
-    printf("\n");
-}
 
 char *
 vmm_return_code_to_string(vmm_return_code_t code)
@@ -146,8 +130,8 @@ initGuestText_Dummy(gra_t gra,
 
   // I5 is illegal or an infinite loop; already populated in the stream
 
-  Printf("Fabricated instructions for executing "
-         "in the guest virtual machine\n");
+  LOG("Fabricated instructions for executing "
+         "in the guest virtual machine");
   pmem_to(gra, text, sizeof(text));
 }
    
@@ -198,8 +182,8 @@ initGuestText_Factorial(gra_t         gra,
     //
     ppcRegs32->ppcLR = gea + vm_page_size - 4;
    
-    Printf("Injected factorial instructions for executing "
-           "in the guest virtual machine\n");
+    LOG("Injected factorial instructions for executing "
+           "in the guest virtual machine");
 }
    
 // Some modularity... these are the demos our program supports
@@ -291,24 +275,25 @@ main(int argc, char **argv)
    
     // Get Vmm version implemented by this kernel
     version = my_vmm_dispatch(kVmmGetVersion);
-    Printf("Mac OS X virtual machine monitor (version %lu.%lu)\n",
+    LOG("Mac OS X virtual machine monitor (version %lu.%lu)",
            (version >> 16), (version & 0xFFFF));
    
     // Get features supported by this Vmm implementation
     features = my_vmm_dispatch(kVmmvGetFeatures);
-    Printf("Vmm features:\n");
-    for (i = 0; VmmFeatures[i].mask != -1; i++)
-        printf("  %-20s = %s\n", VmmFeatures[i].name,
-               (features & VmmFeatures[i].mask) ?  "Yes" : "No");
+    DEBUG("Vmm features:");
+    for (i = 0; VmmFeatures[i].mask != -1; i++){
+      DEBUG("  %-20s = %s", VmmFeatures[i].name,
+            (features & VmmFeatures[i].mask) ?  "Yes" : "No");
+    }
    
-    Printf("Page size is %u bytes\n", vm_page_size);
+    DEBUG("Page size is %u bytes", vm_page_size);
    
     myTask = mach_task_self(); // to save some characters (sure)
  
     // VM user state
     kr = vm_allocate(myTask, &vmmUStatePage, vm_page_size, VM_FLAGS_ANYWHERE);
-    OUT_ON_MACH_ERROR("vm_allocate", kr, out);
-    Printf("Allocated page-aligned memory for virtual machine user state\n");
+    ON_MACH_ERROR("vm_allocate", kr, out);
+    LOG("Allocated page-aligned memory for virtual machine user state");
     vmmUState = (vmm_state_page_t *)vmmUStatePage;
 
     err = pmem_init(vm_page_size * 2);
@@ -334,11 +319,11 @@ main(int argc, char **argv)
    
     // Initialize a new virtual machine context
     kr = my_vmm_dispatch(kVmmInitContext, version, vmmUState);
-    OUT_ON_MACH_ERROR("vmm_init_context", kr, out);
+    ON_MACH_ERROR("vmm_init_context", kr, out);
    
     // Fetch the index returned by vmm_init_context()
     vmmIndex = vmmUState->thread_index;
-    Printf("New virtual machine context initialized, index = %lu\n", vmmIndex);
+    LOG("New virtual machine context initialized, index = %lu", vmmIndex);
 
     kr = my_vmm_dispatch(kVmmActivateXA, vmmIndex, vmmGSA);
     if (kr != KERN_SUCCESS) {
@@ -351,7 +336,7 @@ main(int argc, char **argv)
     // Set the program counter to the beginning of the text in the guest's
     // virtual address space
     ppcRegs32->ppcPC = guestTextAddress;
-    Printf("Guest virtual machine PC set to %p\n", (void *)guestTextAddress);
+    LOG("Guest virtual machine PC set to %p", (void *)guestTextAddress);
 
     if (cpu_little_endian) {
       ppcRegs32->ppcMSR |= MSR_LE;
@@ -360,12 +345,12 @@ main(int argc, char **argv)
     // Set the stack pointer (GPR1), taking the Red Zone into account
     #define PAGE2SP(x) ((void *)((x) + vm_page_size - C_RED_ZONE))
     ppcRegs32->ppcGPRs[1] = (u_int32_t)PAGE2SP(guestStackAddress); // 32-bit
-    Printf("Guest virtual machine SP set to %p\n", PAGE2SP(guestStackAddress));
+    LOG("Guest virtual machine SP set to %p", PAGE2SP(guestStackAddress));
    
     // Map the stack page into the guest's address space
     kr = my_vmm_dispatch(kVmmMapPage, vmmIndex, pmem_base() +
                          vm_page_size, guestStackAddress, VM_PROT_ALL);
-    Printf("Mapping guest stack page\n");
+    LOG("Mapping guest stack page");
    
     // Call the chosen demo's instruction populator
     (SupportedDemos[demo_id].textfiller)(0, guestTextAddress, ppcRegs32);
@@ -374,7 +359,7 @@ main(int argc, char **argv)
     // VM running
     //
 
-    Printf("Mapping guest text page and switching to guest virtual machine\n");
+    LOG("Mapping guest text page and switching to guest virtual machine");
     vmm_ret = my_vmm_dispatch(kVmmMapExecute, vmmIndex, pmem_base() + 0,
                               guestTextAddress, VM_PROT_ALL);
    
@@ -385,56 +370,52 @@ main(int argc, char **argv)
     // this point, and the following code will be executed. Depending on the
     // exact illegal instruction, Mach's error messages may be different.
     //
-    if (vmm_ret != kVmmReturnNull)
-      printf("*** vmm_map_execute: %s (%x)\n", vmm_return_code_to_string(vmm_ret), vmm_ret);
+    if (vmm_ret != kVmmReturnNull) {
+      VMM_ERROR(vmm_ret, "*** vmm_map_execute");
+    }
+
+    LOG("Returned to vmm");
+    LOG("Processor state:");
    
-    Printf("Returned to vmm\n");
-    Printf("Processor state:\n");
-   
-    printf("  Distance from origin = %lu instructions\n",
+    LOG("  Distance from origin = %lu instructions",
            (ppcRegs32->ppcPC - vm_page_size) >> 2);
    
-    printf("  PC                   = %p (%lu)\n",
+    LOG("  PC                   = %p (%lu)",
            (void *)ppcRegs32->ppcPC, ppcRegs32->ppcPC);
    
-    printf("  Instruction at PC    = %#08x\n",
+    LOG("  Instruction at PC    = %#08x",
            ((u_int32_t *)(pmem_base()))[(ppcRegs32->ppcPC - vm_page_size) >> 2]);
    
-    printf("  CR                   = %#08lx\n"
+    LOG("  CR                   = %#08lx"
            "                         ", ppcRegs32->ppcCR);
-    prbits32(ppcRegs32->ppcCR);
-   
-    printf("  LR                   = %#08lx (%lu)\n",
+
+    LOG("  LR                   = %#08lx (%lu)",
            ppcRegs32->ppcLR, ppcRegs32->ppcLR);
    
-    printf("  MSR                  = %#08lx\n"
+    LOG("  MSR                  = %#08lx"
            "                         ", ppcRegs32->ppcMSR);
-    prbits32(ppcRegs32->ppcMSR);
-   
-    printf("  return_code          = %#08lx (%s)\n",
+
+    LOG("  return_code          = %#08lx (%s)",
            vmmUState->return_code, vmm_return_code_to_string(vmmUState->return_code));
    
     return_params32 = vmmUState->vmmRet.vmmrp32.return_params;
    
     for (i = 0; i < 4; i++)
-        printf("  return_params32[%d]   = 0x%08lx (%lu)\n", i,
+        LOG("  return_params32[%d]   = 0x%08lx (%lu)", i,
                return_params32[i], return_params32[i]);
    
-    printf("  GPRs:\n");
+    LOG("  GPRs:");
     for (j = 0; j < 16; j++) {
-        printf("  ");
-        for (i = 0; i < 2; i++) {
-            printf("r%-2d = %#08lx ", j * 2 + i,
-                   ppcRegs32->ppcGPRs[j * 2 + i]);
-        }
-        printf("\n");
+      LOG("r%-2d = %#08lx r%-2d = %#08lx",
+          j * 2, ppcRegs32->ppcGPRs[j * 2],
+          j * 2 + 1, ppcRegs32->ppcGPRs[j * 2 + 1]);
     }
    
     // Tear down the virtual machine ... that's all for now
     kr = my_vmm_dispatch(kVmmTearDownContext, vmmIndex);
-    OUT_ON_MACH_ERROR("vmm_init_context", kr, out);
-    Printf("Virtual machine context torn down\n");
-   
+    ON_MACH_ERROR("vmm_init_context", kr, out);
+    VERBOSE("Virtual machine context torn down");
+
 out:
     exit(kr);
 }

@@ -12,8 +12,8 @@
 #include "types.h"
 #include "defs.h"
 
-#define OUT_ON_MACH_ERROR(msg, retval, out) \
-  if (retval != KERN_SUCCESS) { mach_error("*** " msg ":" , kr); goto out; }
+#define ON_MACH_ERROR(msg, retval, out) \
+  if (retval != KERN_SUCCESS) { MACH_ERROR(retval, msg); goto out; }
 
 #ifndef _VMACHMON32_KLUDGE_
 // We need to include xnu/osfmk/ppc/vmachmon.h, which includes several other
