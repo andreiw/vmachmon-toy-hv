@@ -5,7 +5,7 @@
 #include <ctype.h>
 
 #ifndef LOG_PFX
-#define LOG_PFX VMM
+#define LOG_PFX PVP
 #endif /* LOG_PFX */
 
 #define LOG_FATAL       0
