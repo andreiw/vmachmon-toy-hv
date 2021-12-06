@@ -1,56 +1,6 @@
-#include "pvp.h"
-#include "log.h"
+#include "vmm.h"
+#include "pmem.h"
 #include "ppc-defs.h"
-   
-// vmm_dispatch() is a PowerPC-only system call that allows us to invoke
-// functions residing in the Vmm dispatch table. In general, Vmm routines
-// are available to user space, but the C library (or another library) does
-// not contain stubs to call them. Thus, we must go through vmm_dispatch(),
-// using the index of the function to call as the first parameter in GPR3.
-//
-// Since vmachmon.h contains the kernel prototype of vmm_dispatch(), which
-// is not what we want, we will declare our own function pointer and set
-// it to the stub available in the C library.
-//
-typedef int (* vmm_dispatch_func_t)(int, ...);
-vmm_dispatch_func_t my_vmm_dispatch;
-   
-// Convenience data structure for pretty-printing Vmm features
-struct VmmFeature {
-    int32_t  mask;
-    char    *name;
-} VmmFeatures[] = {
-    { kVmmFeature_LittleEndian,        "LittleEndian"        },
-    { kVmmFeature_Stop,                "Stop"                },
-    { kVmmFeature_ExtendedMapping,     "ExtendedMapping"     },
-    { kVmmFeature_ListMapping,         "ListMapping"         },
-    { kVmmFeature_FastAssist,          "FastAssist"          },
-    { kVmmFeature_XA,                  "XA"                  },
-    { kVmmFeature_SixtyFourBit,        "SixtyFourBit"        },
-    { kVmmFeature_MultAddrSpace,       "MultAddrSpace"       },
-    { kVmmFeature_GuestShadowAssist,   "GuestShadowAssist"   },
-    { kVmmFeature_GlobalMappingAssist, "GlobalMappingAssist" },
-    { kVmmFeature_HostShadowAssist,    "HostShadowAssist"    },
-    { kVmmFeature_MultAddrSpaceAssist, "MultAddrSpaceAssist" },
-    { -1, NULL },
-};
-
-char *
-vmm_return_code_to_string(vmm_return_code_t code)
-{
-#define _VMM_RETURN_CODE(x) case x: {		\
-    return #x;					\
-    break;					\
-  }
-
-  switch(code) {
-    VMM_RETURN_CODES
-  default:
-    return "unknown";
-  }
-
-#undef _VMM_RETURN_CODE
-}
    
 // Function to initialize a memory buffer with some machine code
 void
@@ -253,48 +203,27 @@ main(int argc, char **argv)
 
     vmm_return_code_t   vmm_ret;
     kern_return_t       kr;
-    mach_port_t         myTask;
     unsigned long      *return_params32;
-    vmm_features_t      features;
+
     vmm_regs32_t       *ppcRegs32;
-    vmm_version_t       version;
     vmm_thread_index_t  vmmIndex;             // The VM's index
-    vm_address_t        vmmUStatePage = 0;    // Page for VM's user state
-    vmm_state_page_t   *vmmUState;            // It's a vmm_comm_page_t too
+    vmm_state_page_t   *vmmUState= 0;            // It's a vmm_comm_page_t too
     vm_address_t        guestTextAddress = 0;
     vm_address_t        guestStackAddress = 0;
     err_t               err;
-   
-    my_vmm_dispatch = (vmm_dispatch_func_t)vmm_dispatch;
     
     // Ensure that the user chose a demo
     usage(argc, argv);
-   
-    // Get Vmm version implemented by this kernel
-    version = my_vmm_dispatch(kVmmGetVersion);
-    LOG("Mac OS X virtual machine monitor (version %lu.%lu)",
-           (version >> 16), (version & 0xFFFF));
-   
-    // Get features supported by this Vmm implementation
-    features = my_vmm_dispatch(kVmmvGetFeatures);
-    DEBUG("Vmm features:");
-    for (i = 0; VmmFeatures[i].mask != -1; i++){
-      DEBUG("  %-20s = %s", VmmFeatures[i].name,
-            (features & VmmFeatures[i].mask) ?  "Yes" : "No");
+
+    err = vmm_init(&vmmUState);
+    if (err != ERR_NONE) {
+      ERROR(err, "vmm_init");
+      goto out;
     }
-   
-    DEBUG("Page size is %u bytes", vm_page_size);
-   
-    myTask = mach_task_self(); // to save some characters (sure)
- 
-    // VM user state
-    kr = vm_allocate(myTask, &vmmUStatePage, vm_page_size, VM_FLAGS_ANYWHERE);
-    ON_MACH_ERROR("vm_allocate", kr, out);
-    LOG("Allocated page-aligned memory for virtual machine user state");
-    vmmUState = (vmm_state_page_t *)vmmUStatePage;
 
     err = pmem_init(vm_page_size * 2);
     if (err != ERR_NONE) {
+      ERROR(err, "pmem_init");
       goto out;
     }
        
@@ -313,16 +242,12 @@ main(int argc, char **argv)
    
     guestTextAddress = vm_page_size;
     guestStackAddress = 2 * vm_page_size;
-   
-    // Initialize a new virtual machine context
-    kr = my_vmm_dispatch(kVmmInitContext, version, vmmUState);
-    ON_MACH_ERROR("vmm_init_context", kr, out);
-   
+
     // Fetch the index returned by vmm_init_context()
     vmmIndex = vmmUState->thread_index;
     LOG("New virtual machine context initialized, index = %lu", vmmIndex);
 
-    kr = my_vmm_dispatch(kVmmActivateXA, vmmIndex, vmmGSA);
+    kr = vmm_call(kVmmActivateXA, vmmIndex, vmmGSA);
     if (kr != KERN_SUCCESS) {
       mach_error("*** kVmmActivateXA not enabling GSA:", kr);
     }
@@ -345,7 +270,7 @@ main(int argc, char **argv)
     LOG("Guest virtual machine SP set to %p", PAGE2SP(guestStackAddress));
    
     // Map the stack page into the guest's address space
-    kr = my_vmm_dispatch(kVmmMapPage, vmmIndex, pmem_base() +
+    kr = vmm_call(kVmmMapPage, vmmIndex, pmem_base() +
                          vm_page_size, guestStackAddress, VM_PROT_ALL);
     LOG("Mapping guest stack page");
    
@@ -357,7 +282,7 @@ main(int argc, char **argv)
     //
 
     LOG("Mapping guest text page and switching to guest virtual machine");
-    vmm_ret = my_vmm_dispatch(kVmmMapExecute, vmmIndex, pmem_base() + 0,
+    vmm_ret = vmm_call(kVmmMapExecute, vmmIndex, pmem_base() + 0,
                               guestTextAddress, VM_PROT_ALL);
    
     // Our demo ensures that the last instruction in the guest's text is
@@ -409,7 +334,7 @@ main(int argc, char **argv)
     }
    
     // Tear down the virtual machine ... that's all for now
-    kr = my_vmm_dispatch(kVmmTearDownContext, vmmIndex);
+    kr = vmm_call(kVmmTearDownContext, vmmIndex);
     ON_MACH_ERROR("vmm_init_context", kr, out);
     VERBOSE("Virtual machine context torn down");
 

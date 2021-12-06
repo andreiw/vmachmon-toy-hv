@@ -1,6 +1,5 @@
-#include "pvp.h"
 #define LOG_PFX PMEM
-#include "log.h"
+#include "pvp.h"
 
 static vm_address_t pmem;
 static size_t pmem_bytes;

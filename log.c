@@ -1,5 +1,5 @@
 #include "pvp.h"
-#include "log.h"
+#include "vmm.h"
 
 #define ANSI_CSI    "\33["
 #define ANSI_BLACK  0
@@ -17,7 +17,7 @@
 #define ANSI_SET(color)       ANSI_CSI "%um", (color)
 #define ANSI_RESET            ANSI_SET(ANSI_NORMAL)
 
-static char *
+static const char *
 err_t_to_string(err_t code)
 {
 #define ERR_DEF(x, z) case x: { return z; } 
@@ -89,7 +89,6 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
       level == LOG_VMM_ERROR ||
       level == LOG_MACH_ERROR ||
       level == LOG_POSIX_ERROR) {
-    extern char *vmm_return_code_to_string(unsigned code);
     const char *s;
 
     fprintf(f, ANSI_SET(ANSI_FG(ANSI_RED)));
