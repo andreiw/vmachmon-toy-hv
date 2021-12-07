@@ -84,7 +84,10 @@ vmm_init(vmm_state_page_t **vm_state)
 
   // Initialize a new virtual machine context
   kr = vmm_call(kVmmInitContext, version, vmmUState);
-  ON_MACH_ERROR("vmm_init_context", kr, out);
+  ON_MACH_ERROR("kVmmInitContext", kr, out);
+
+  kr = vmm_call(kVmmActivateXA, vmmUState->thread_index, vmmGSA);
+  ON_MACH_ERROR("kVmmActivateXA", kr, out);
 
   *vm_state = vmmUState;
 out:

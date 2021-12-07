@@ -40,7 +40,7 @@
                     const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
                     (type *)( (char *)__mptr - offsetof(type,member) );})
 
-#define offsetof(TYPE, MEMBER) ((length_t) &((TYPE *)0)->MEMBER)
+#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 
 #define MB(x) (1U * x * 1024 * 1024)
 #define GB(x) (1U * x * 1024 * 1024 * 1024)

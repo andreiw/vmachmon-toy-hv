@@ -1,5 +1,4 @@
-#include "vmm.h"
-#include "pmem.h"
+#include "guest.h"
 #include "ppc-defs.h"
    
 // Function to initialize a memory buffer with some machine code
@@ -204,10 +203,6 @@ main(int argc, char **argv)
     vmm_return_code_t   vmm_ret;
     kern_return_t       kr;
     unsigned long      *return_params32;
-
-    vmm_regs32_t       *ppcRegs32;
-    vmm_thread_index_t  vmmIndex;             // The VM's index
-    vmm_state_page_t   *vmmUState= 0;            // It's a vmm_comm_page_t too
     vm_address_t        guestTextAddress = 0;
     vm_address_t        guestStackAddress = 0;
     err_t               err;
@@ -215,15 +210,9 @@ main(int argc, char **argv)
     // Ensure that the user chose a demo
     usage(argc, argv);
 
-    err = vmm_init(&vmmUState);
+    err = guest_init(cpu_little_endian, vm_page_size * 2);
     if (err != ERR_NONE) {
-      ERROR(err, "vmm_init");
-      goto out;
-    }
-
-    err = pmem_init(vm_page_size * 2);
-    if (err != ERR_NONE) {
-      ERROR(err, "pmem_init");
+      ERROR(err, "guest_init");
       goto out;
     }
        
@@ -242,47 +231,31 @@ main(int argc, char **argv)
    
     guestTextAddress = vm_page_size;
     guestStackAddress = 2 * vm_page_size;
-
-    // Fetch the index returned by vmm_init_context()
-    vmmIndex = vmmUState->thread_index;
-    LOG("New virtual machine context initialized, index = %lu", vmmIndex);
-
-    kr = vmm_call(kVmmActivateXA, vmmIndex, vmmGSA);
-    if (kr != KERN_SUCCESS) {
-      mach_error("*** kVmmActivateXA not enabling GSA:", kr);
-    }
-
-    // Set a convenience pointer to the VM's registers
-    ppcRegs32 = &(vmmUState->vmm_proc_state.ppcRegs.ppcRegs32);
    
     // Set the program counter to the beginning of the text in the guest's
     // virtual address space
-    ppcRegs32->ppcPC = guestTextAddress;
+    guest->regs->ppcPC = guestTextAddress;
     LOG("Guest virtual machine PC set to %p", (void *)guestTextAddress);
-
-    if (cpu_little_endian) {
-      ppcRegs32->ppcMSR |= MSR_LE;
-    }
     
     // Set the stack pointer (GPR1), taking the Red Zone into account
     #define PAGE2SP(x) ((void *)((x) + vm_page_size - C_RED_ZONE))
-    ppcRegs32->ppcGPRs[1] = (u_int32_t)PAGE2SP(guestStackAddress); // 32-bit
+    guest->regs->ppcGPRs[1] = (u_int32_t)PAGE2SP(guestStackAddress); // 32-bit
     LOG("Guest virtual machine SP set to %p", PAGE2SP(guestStackAddress));
    
     // Map the stack page into the guest's address space
-    kr = vmm_call(kVmmMapPage, vmmIndex, pmem_base() +
+    kr = vmm_call(kVmmMapPage, guest->vmm_index, pmem_base() +
                          vm_page_size, guestStackAddress, VM_PROT_ALL);
     LOG("Mapping guest stack page");
    
     // Call the chosen demo's instruction populator
-    (SupportedDemos[demo_id].textfiller)(0, guestTextAddress, ppcRegs32);
+    (SupportedDemos[demo_id].textfiller)(0, guestTextAddress, guest->regs);
    
     // Finally, map the text page into the guest's address space, and set the
     // VM running
     //
 
     LOG("Mapping guest text page and switching to guest virtual machine");
-    vmm_ret = vmm_call(kVmmMapExecute, vmmIndex, pmem_base() + 0,
+    vmm_ret = vmm_call(kVmmMapExecute, guest->vmm_index, pmem_base() + 0,
                               guestTextAddress, VM_PROT_ALL);
    
     // Our demo ensures that the last instruction in the guest's text is
@@ -300,27 +273,27 @@ main(int argc, char **argv)
     LOG("Processor state:");
    
     LOG("  Distance from origin = %lu instructions",
-           (ppcRegs32->ppcPC - vm_page_size) >> 2);
+           (guest->regs->ppcPC - vm_page_size) >> 2);
    
     LOG("  PC                   = %p (%lu)",
-           (void *)ppcRegs32->ppcPC, ppcRegs32->ppcPC);
+           (void *)guest->regs->ppcPC, guest->regs->ppcPC);
    
     LOG("  Instruction at PC    = %#08x",
-           ((u_int32_t *)(pmem_base()))[(ppcRegs32->ppcPC - vm_page_size) >> 2]);
+           ((u_int32_t *)(pmem_base()))[(guest->regs->ppcPC - vm_page_size) >> 2]);
    
     LOG("  CR                   = %#08lx"
-           "                         ", ppcRegs32->ppcCR);
+           "                         ", guest->regs->ppcCR);
 
     LOG("  LR                   = %#08lx (%lu)",
-           ppcRegs32->ppcLR, ppcRegs32->ppcLR);
+           guest->regs->ppcLR, guest->regs->ppcLR);
    
     LOG("  MSR                  = %#08lx"
-           "                         ", ppcRegs32->ppcMSR);
+           "                         ", guest->regs->ppcMSR);
 
     LOG("  return_code          = %#08lx (%s)",
-           vmmUState->return_code, vmm_return_code_to_string(vmmUState->return_code));
+           guest->vmm->return_code, vmm_return_code_to_string(guest->vmm->return_code));
    
-    return_params32 = vmmUState->vmmRet.vmmrp32.return_params;
+    return_params32 = guest->vmm->vmmRet.vmmrp32.return_params;
    
     for (i = 0; i < 4; i++)
         LOG("  return_params32[%d]   = 0x%08lx (%lu)", i,
@@ -329,12 +302,12 @@ main(int argc, char **argv)
     LOG("  GPRs:");
     for (j = 0; j < 16; j++) {
       LOG("r%-2d = %#08lx r%-2d = %#08lx",
-          j * 2, ppcRegs32->ppcGPRs[j * 2],
-          j * 2 + 1, ppcRegs32->ppcGPRs[j * 2 + 1]);
+          j * 2, guest->regs->ppcGPRs[j * 2],
+          j * 2 + 1, guest->regs->ppcGPRs[j * 2 + 1]);
     }
    
     // Tear down the virtual machine ... that's all for now
-    kr = vmm_call(kVmmTearDownContext, vmmIndex);
+    kr = vmm_call(kVmmTearDownContext, guest->vmm_index);
     ON_MACH_ERROR("vmm_init_context", kr, out);
     VERBOSE("Virtual machine context torn down");
 

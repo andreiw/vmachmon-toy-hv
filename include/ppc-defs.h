@@ -2,6 +2,16 @@
 
 #define MSR_LE (1UL << (0))
 
+/* 32-bit segment register definitions */
+#define SR_INDEX(ea)            (ea >> 28)
+#define SR_INDEX_TO_EA(index)   ((uint64_t) index << 28)
+#define SR_COUNT                16
+#define SR_T                    (1U << (31 - 0))
+#define SR_KP                   (1U << (31 - 1))
+#define SR_KS                   (1U << (31 - 2))
+#define SR_VSID_MASK            0xFFFFFF
+#define SR_VSID_SHIFT           0
+
 // PowerPC instruction template: add immediate, D-form
 typedef struct I_addi_d_form {
     u_int32_t OP: 6;  // major opcode
