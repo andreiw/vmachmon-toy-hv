@@ -1,13 +1,74 @@
 #include "guest.h"
 #include "ppc-defs.h"
+
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/stat.h>
+
+#define PAGE2SP(x) ((void *)((x) + vm_page_size - C_RED_ZONE))
+
+void
+initGuestText_ROM(void)
+{
+  int fd;
+  gea_t guestTextAddress = 0;
+  gea_t guestStackAddress = 0;
+  vmm_return_code_t vmm_ret;
+  struct stat st;
+  size_t page_bytes;
+
+  guestTextAddress = 0x3e0000;
+  guestStackAddress = 2 * vm_page_size;
+
+  fd = open("iquik.b", O_RDONLY);
+  if (fd == -1) {
+    POSIX_ERROR(errno, "open");
+  }
+
+  if (fstat(fd, &st) == -1) {
+    POSIX_ERROR(errno, "stat");
+  }
+
+  if (read(fd, (void *) (pmem_base() + guestTextAddress), st.st_size) == -1) {
+    POSIX_ERROR(errno, "read");
+  }
+
+  guest->regs->ppcPC = guestTextAddress;
+
+  // Set the stack pointer (GPR1), taking the Red Zone into account
+  guest->regs->ppcGPRs[1] = (u_int32_t)PAGE2SP(guestStackAddress); // 32-bit
+
+  vmm_ret = vmm_call(kVmmMapPage, guest->vmm_index, pmem_base() +
+		guestStackAddress, guestStackAddress, VM_PROT_ALL);
+  if (vmm_ret != kVmmReturnNull) {
+    VMM_ERROR(vmm_ret, "kVmmMapPage stack");
+  }
+
+  page_bytes = ALIGN_UP(st.st_size, vm_page_size);
+  while (page_bytes != 0) {
+    vmm_ret = vmm_call(kVmmMapPage, guest->vmm_index, pmem_base() +
+		       guestTextAddress, guestTextAddress, VM_PROT_ALL);
+    if (vmm_ret != kVmmReturnNull) {
+      VMM_ERROR(vmm_ret, "kVmmMapPage text");
+    }
+
+    guestTextAddress += vm_page_size;
+    page_bytes -= vm_page_size;
+  }
+}
+
    
 // Function to initialize a memory buffer with some machine code
 void
-initGuestText_Dummy(gra_t gra,
-                    gea_t gea,
-                    vmm_regs32_t *ppcRegs32)
+initGuestText_Dummy(void)
 {
+  gea_t guestTextAddress = 0;
+  gea_t guestStackAddress = 0;
+  vmm_return_code_t vmm_ret;
   uint32_t text[6];
+
+  guestTextAddress = vm_page_size;
+  guestStackAddress = 2 * vm_page_size;
 
   // We will execute a stream of a few instructions in the virtual machine
   // through the Vmm (that is, us). I0 and I1 will load integer values into
@@ -59,7 +120,7 @@ initGuestText_Dummy(gra_t gra,
   // where the first instruction is at guestTextAddress. Note the shifting.
   //
   I2->OP = 18;
-  I2->LI = (gea + (4 * 4)) >> 2;
+  I2->LI = (guestTextAddress + (4 * 4)) >> 2;
   I2->AA = 1;
   I2->LK = 0;
 
@@ -76,64 +137,103 @@ initGuestText_Dummy(gra_t gra,
 
   // I5 is illegal or an infinite loop; already populated in the stream
 
+  pmem_to(guestTextAddress, text, sizeof(text));
+
+  guest->regs->ppcPC = guestTextAddress;
+
+  // Set the stack pointer (GPR1), taking the Red Zone into account
+  guest->regs->ppcGPRs[1] = (u_int32_t)PAGE2SP(guestStackAddress); // 32-bit
+
+  vmm_ret = vmm_call(kVmmMapPage, guest->vmm_index, pmem_base() +
+		guestStackAddress, guestStackAddress, VM_PROT_ALL);
+  if (vmm_ret != kVmmReturnNull) {
+    VMM_ERROR(vmm_ret, "kVmmMapPage stack");
+  }
+
+  vmm_ret = vmm_call(kVmmMapPage, guest->vmm_index, pmem_base() +
+		     guestTextAddress, guestTextAddress, VM_PROT_ALL);
+  if (vmm_ret != kVmmReturnNull) {
+    VMM_ERROR(vmm_ret, "kVmmMapPage text");
+  }
+
   LOG("Fabricated instructions for executing "
          "in the guest virtual machine");
-  pmem_to(gra, text, sizeof(text));
 }
    
 // Function to initialize a memory buffer with some machine code
 void
-initGuestText_Factorial(gra_t         gra,
-                        gea_t         gea,
-                        vmm_regs32_t *ppcRegs32)
+initGuestText_Factorial(void)
 {
-    // Machine code for the following function:
-    //
-    // int 
-    // factorial(int n)
-    // {
-    //     if (n <= 0)
-    //         return 1;
-    //     else
-    //         return n * factorial(n - 1);
-    // }
-    //
-    // You can obtain this from the function's C source using a command-line
-    // sequence like the following:
-    //
-    // $ gcc -static -c factorial.c
-    // $ otool -tX factorial.o
-    // ...
-    //
-    u_int32_t factorial_ppc32[] = {
-        0x7c0802a6, 0xbfc1fff8, 0x90010008, 0x9421ffa0,
-        0x7c3e0b78, 0x907e0078, 0x801e0078, 0x2f800000,
-        0x419d0010, 0x38000001, 0x901e0040, 0x48000024,
-        0x805e0078, 0x3802ffff, 0x7c030378, 0x4bffffc5,
-        0x7c621b78, 0x801e0078, 0x7c0201d6, 0x901e0040,
-        0x807e0040, 0x80210000, 0x80010008, 0x7c0803a6,
-        0xbbc1fff8, 0x4e800020,
-    };
+  vm_address_t      guestTextAddress = 0;
+  vm_address_t      guestStackAddress = 0;
+  vmm_return_code_t vmm_ret;
 
-    pmem_to(gra, factorial_ppc32, sizeof(factorial_ppc32)/sizeof(u_int8_t));
+  guestTextAddress = vm_page_size;
+  guestStackAddress = 2 * vm_page_size;
+
+  // Machine code for the following function:
+  //
+  // int
+  // factorial(int n)
+  // {
+  //     if (n <= 0)
+  //         return 1;
+  //     else
+  //         return n * factorial(n - 1);
+  // }
+  //
+  // You can obtain this from the function's C source using a command-line
+  // sequence like the following:
+  //
+  // $ gcc -static -c factorial.c
+  // $ otool -tX factorial.o
+  // ...
+  //
+  u_int32_t factorial_ppc32[] = {
+    0x7c0802a6, 0xbfc1fff8, 0x90010008, 0x9421ffa0,
+    0x7c3e0b78, 0x907e0078, 0x801e0078, 0x2f800000,
+    0x419d0010, 0x38000001, 0x901e0040, 0x48000024,
+    0x805e0078, 0x3802ffff, 0x7c030378, 0x4bffffc5,
+    0x7c621b78, 0x801e0078, 0x7c0201d6, 0x901e0040,
+    0x807e0040, 0x80210000, 0x80010008, 0x7c0803a6,
+    0xbbc1fff8, 0x4e800020,
+  };
+
+  pmem_to(guestTextAddress, factorial_ppc32, sizeof(factorial_ppc32)/sizeof(u_int8_t));
    
-    // This demo takes an argument in GPR3: the number whose factorial is to
-    // be computed. The result is returned in GPR3.
-    //
-    ppcRegs32->ppcGPRs[3] = 10; // factorial(10)
+  // This demo takes an argument in GPR3: the number whose factorial is to
+  // be computed. The result is returned in GPR3.
+  //
+  guest->regs->ppcGPRs[3] = 10; // factorial(10)
    
-    // Set the LR to the end of the text in the guest's virtual address space.
-    // Our demo will only use the LR for returning to the Vmm by placing an
-    // illegal instruction's address in it.
-    //
-    ppcRegs32->ppcLR = gea + vm_page_size - 4;
-   
-    LOG("Injected factorial instructions for executing "
-           "in the guest virtual machine");
+  // Set the LR to the end of the text in the guest's virtual address space.
+  // Our demo will only use the LR for returning to the Vmm by placing an
+  // illegal instruction's address in it.
+  //
+  guest->regs->ppcLR = guestTextAddress + vm_page_size - 4;
+  guest->regs->ppcPC = guestTextAddress;
+
+  // Set the stack pointer (GPR1), taking the Red Zone into account
+  guest->regs->ppcGPRs[1] = (u_int32_t)PAGE2SP(guestStackAddress); // 32-bit
+
+  vmm_ret = vmm_call(kVmmMapPage, guest->vmm_index, pmem_base() +
+		guestStackAddress, guestStackAddress, VM_PROT_ALL);
+  if (vmm_ret != kVmmReturnNull) {
+    VMM_ERROR(vmm_ret, "kVmmMapPage stack");
+  }
+
+  vmm_ret = vmm_call(kVmmMapPage, guest->vmm_index, pmem_base() +
+		     guestTextAddress, guestTextAddress, VM_PROT_ALL);
+  if (vmm_ret != kVmmReturnNull) {
+    VMM_ERROR(vmm_ret, "kVmmMapPage text");
+  }
+
+  LOG("Injected factorial instructions for executing "
+      "in the guest virtual machine");
 }
    
 // Some modularity... these are the demos our program supports
-typedef void (* initGuestText_Func)(gra_t, gea_t, vmm_regs32_t *);
+typedef void (* initGuestText_Func)(void);
 typedef struct {
     const char         *name;
     initGuestText_Func  textfiller;
@@ -141,13 +241,17 @@ typedef struct {
    
 Demo SupportedDemos[] = {
     {
-        "executes a few hand-crafted instructions in a VM",
-        initGuestText_Dummy,
+      "executes a few hand-crafted instructions in a VM",
+      initGuestText_Dummy,
     },
     {
-        "executes a recursive factorial function in a VM",
-        initGuestText_Factorial,
+      "executes a recursive factorial function in a VM",
+      initGuestText_Factorial,
     },
+    {
+      "load from ROM file",
+      initGuestText_ROM,
+    }
 };
 #define MAX_DEMO_ID (sizeof(SupportedDemos)/sizeof(Demo))
    
@@ -203,60 +307,22 @@ main(int argc, char **argv)
     vmm_return_code_t   vmm_ret;
     kern_return_t       kr;
     unsigned long      *return_params32;
-    vm_address_t        guestTextAddress = 0;
-    vm_address_t        guestStackAddress = 0;
     err_t               err;
     
     // Ensure that the user chose a demo
     usage(argc, argv);
 
-    err = guest_init(cpu_little_endian, vm_page_size * 2);
+    err = guest_init(cpu_little_endian, MB(32));
     if (err != ERR_NONE) {
       ERROR(err, "guest_init");
       goto out;
     }
-       
-    // We will lay out the text and stack pages adjacent to one another in
-    // the guest's virtual address space.
-    //
-    // Virtual addresses increase -->
-    // 0              4K             8K             12K
-    // +--------------------------------------------+
-    // | __PAGEZERO   |  GUEST_TEXT  | GUEST_STACK  |
-    // +--------------------------------------------+
-    //
-    // We put the text page at virtual offset vm_page_size and the stack
-    // page at virtual offset (2 * vm_page_size).
-    //
-   
-    guestTextAddress = vm_page_size;
-    guestStackAddress = 2 * vm_page_size;
-   
-    // Set the program counter to the beginning of the text in the guest's
-    // virtual address space
-    guest->regs->ppcPC = guestTextAddress;
-    LOG("Guest virtual machine PC set to %p", (void *)guestTextAddress);
-    
-    // Set the stack pointer (GPR1), taking the Red Zone into account
-    #define PAGE2SP(x) ((void *)((x) + vm_page_size - C_RED_ZONE))
-    guest->regs->ppcGPRs[1] = (u_int32_t)PAGE2SP(guestStackAddress); // 32-bit
-    LOG("Guest virtual machine SP set to %p", PAGE2SP(guestStackAddress));
-   
-    // Map the stack page into the guest's address space
-    kr = vmm_call(kVmmMapPage, guest->vmm_index, pmem_base() +
-                         vm_page_size, guestStackAddress, VM_PROT_ALL);
-    LOG("Mapping guest stack page");
-   
-    // Call the chosen demo's instruction populator
-    (SupportedDemos[demo_id].textfiller)(0, guestTextAddress, guest->regs);
-   
-    // Finally, map the text page into the guest's address space, and set the
-    // VM running
-    //
 
+    // Call the chosen demo's instruction populator
+    (SupportedDemos[demo_id].textfiller)();
+   
     LOG("Mapping guest text page and switching to guest virtual machine");
-    vmm_ret = vmm_call(kVmmMapExecute, guest->vmm_index, pmem_base() + 0,
-                              guestTextAddress, VM_PROT_ALL);
+    vmm_ret = vmm_call(kVmmExecuteVM, guest->vmm_index);
    
     // Our demo ensures that the last instruction in the guest's text is
     // either an infinite loop or illegal. The monitor will "hang" in the case
@@ -271,15 +337,12 @@ main(int argc, char **argv)
 
     LOG("Returned to vmm");
     LOG("Processor state:");
-   
-    LOG("  Distance from origin = %lu instructions",
-           (guest->regs->ppcPC - vm_page_size) >> 2);
-   
+
     LOG("  PC                   = %p (%lu)",
            (void *)guest->regs->ppcPC, guest->regs->ppcPC);
    
     LOG("  Instruction at PC    = %#08x",
-           ((u_int32_t *)(pmem_base()))[(guest->regs->ppcPC - vm_page_size) >> 2]);
+           ((u_int32_t *)(pmem_base()))[(guest->regs->ppcPC) >> 2]);
    
     LOG("  CR                   = %#08lx"
            "                         ", guest->regs->ppcCR);

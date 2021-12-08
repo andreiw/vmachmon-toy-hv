@@ -26,8 +26,8 @@ guest_init(bool little, size_t ram_size)
     return err;
   }
 
-  guest->pvr = 0x00010001; /* 601  - YES!   */
-  // guest->pvr = 0x00030001; /* 603  - YES!   */
+  // guest->pvr = 0x00010001; /* 601  - YES!   */
+  guest->pvr = 0x00030001; /* 603  - YES!   */
   // guest->pvr = 0x00040103; /* 604  - YES!   */
   // guest->pvr = 0x00090204; /* 604e - YES!   */
   // guest->pvr = 0x00080200; /* G3   - YES!!! */
