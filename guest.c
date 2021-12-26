@@ -43,3 +43,9 @@ guest_init(bool little, size_t ram_size)
 
   return ERR_NONE;
 }
+
+bool
+guest_is_little(void)
+{
+  return (guest->regs->ppcMSR & MSR_LE) != 0;
+}

@@ -21,3 +21,4 @@ typedef struct guest_t {
 extern guest_t *guest;
 
 err_t guest_init(bool little, size_t ram_size);
+bool guest_is_little(void);

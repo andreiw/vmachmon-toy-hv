@@ -34,11 +34,31 @@ err:
 void
 pmem_to(gra_t dest, void *src, size_t bytes)
 {
-  memcpy((void *) (pmem + dest), src, bytes);
+  if (guest_is_little()) {
+    unsigned i;
+    uint8_t *s = src;
+    uint8_t *d = (void *) (pmem + dest);
+
+    for (i = 0; i < bytes; i++) {
+      d[i ^ 7] = s[i];
+    }
+  } else {
+    memcpy((void *) (pmem + dest), src, bytes);
+  }
 }
 
 void
 pmem_from(void *dest, gra_t src, size_t bytes)
 {
-  memcpy(dest, (void *) (pmem + src), bytes);
+  if (guest_is_little()) {
+    unsigned i;
+    uint8_t *s = (void *) (pmem + src);
+    uint8_t *d = dest;
+
+    for (i = 0; i < bytes; i++) {
+      d[i] = s[i ^ 7];
+    }
+  } else {
+    memcpy(dest, (void *) (pmem + src), bytes);
+  }
 }
