@@ -81,6 +81,7 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
   vsnprintf(buf, sizeof(buf), fmt, ap);
   va_end(ap);
 
+  fprintf(f, ANSI_SET(ANSI_BG(ANSI_BLACK)));
   fprintf(f, ANSI_SET(ANSI_BRIGHT_FG(ANSI_BLACK)));
   fprintf(f, "[%s] ", pfx);
   fprintf(f, ANSI_SET(colors[level]));

@@ -3,6 +3,12 @@
 #include <pvp.h>
 #include <vmm.h>
 
+typedef enum {
+  MMU_PSEUDO_ON,
+  MMU_OFF,
+  MM_ON,
+} mmu_state_t;
+
 typedef struct guest_t {
   uint32_t sdr1;
   uint32_t pvr;
