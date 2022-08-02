@@ -1,12 +1,12 @@
 #pragma once
 
-#include <pvp.h>
-#include <vmm.h>
+#include "pvp.h"
+#include "vmm.h"
 
 typedef enum {
   MMU_PSEUDO_ON,
   MMU_OFF,
-  MM_ON,
+  MMU_ON,
 } mmu_state_t;
 
 typedef struct guest_t {
@@ -22,9 +22,13 @@ typedef struct guest_t {
   vmm_state_page_t *vmm;
   vmm_thread_index_t vmm_index;
   vmm_regs32_t *regs;
+  mmu_state_t mmu_state;
 } guest_t;
 
 extern guest_t *guest;
 
 err_t guest_init(bool little, size_t ram_size);
 bool guest_is_little(void);
+bool guest_mmu_allow_ra(void);
+err_t guest_map(ha_t host_addres, gea_t ea);
+err_t guest_backmap(gea_t ea, gra_t *gra);

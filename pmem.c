@@ -1,17 +1,32 @@
 #define LOG_PFX PMEM
 #include "pvp.h"
 
-static vm_address_t pmem;
+static ha_t pmem;
 static size_t pmem_bytes;
 
-vm_address_t pmem_base()
+ha_t pmem_ha(gra_t ra)
 {
-  return pmem;
+  return pmem + ra;
+}
+
+err_t pmem_gra(ha_t ha, gra_t *gra)
+{
+  if (ha >= pmem && ha < (pmem + pmem_bytes)) {
+    *gra = ha - pmem;
+    return ERR_NONE;
+  }
+
+  return ERR_NOT_FOUND;
 }
 
 size_t pmem_size()
 {
   return pmem_bytes;
+}
+
+bool pmem_gra_valid(gra_t ra)
+{
+  return ra < pmem_bytes;
 }
 
 err_t pmem_init(size_t bytes)

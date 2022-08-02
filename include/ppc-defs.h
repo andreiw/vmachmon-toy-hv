@@ -1,6 +1,14 @@
 #pragma once
 
-#define MSR_LE (1UL << (0))
+#define PPC_BITS(x) (1UL << (31 - x))
+
+#define MSR_IR PPC_BITS(26) /* Instruction Relocate */
+#define MSR_DR PPC_BITS(27) /* Data Relocate */
+#define MSR_LE PPC_BITS(31) /* Little Endian */
+
+#define DSISR_NOT_PRESENT PPC_BITS(1)
+#define DSISR_BAD_PERM    PPC_BITS(4)
+#define DSISR_STORE       PPC_BITS(6)
 
 /* 32-bit segment register definitions */
 #define SR_INDEX(ea)            (ea >> 28)

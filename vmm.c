@@ -59,7 +59,7 @@ vmm_init(vmm_state_page_t **vm_state)
   vmm_features_t features;
   kern_return_t kr;
   mach_port_t mt;
-  vm_address_t vmmUStatePage = 0;
+  ha_t vmmUStatePage = 0;
   vmm_state_page_t *vmmUState = NULL; // It's a vmm_comm_page_t too
 
   vmm_call = (vmm_dispatch_func_t) vmm_dispatch;

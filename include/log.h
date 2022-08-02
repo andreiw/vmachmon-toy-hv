@@ -44,3 +44,18 @@ void _log(unsigned level, unsigned log_lvl, unsigned error_extra,
 #define DEBUG(fmt, ...)   _LOG(LOG_DEBUG, 0, fmt, ## __VA_ARGS__)
 #endif /* Not OPTIMIZED */
 
+#define ON_ERROR(msg, error, out) \
+  if (error != ERR_NONE) { ERROR(error, msg); goto out; }
+
+#define ON_MACH_ERROR(msg, error, out) \
+  if (error != KERN_SUCCESS) { MACH_ERROR(error, msg); goto out; }
+
+#define ON_VMM_ERROR(msg, error, out) \
+  if (error != kVmmReturnNull) { VMM_ERROR(error, msg); goto out; }
+
+#define BUG_ON(x, fmt, ...) do {                                        \
+    if ((x)) {                                                          \
+      FATAL(ERR_ASSERT, "%s:%u %s: " fmt, __FILE__, __LINE__, SIFY(x), ## __VA_ARGS__); \
+      abort();                                                          \
+    }                                                                   \
+  } while(0);

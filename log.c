@@ -51,7 +51,7 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
     ANSI_BRIGHT_FG(ANSI_RED),    
     ANSI_BRIGHT_FG(ANSI_YELLOW),
     ANSI_BRIGHT_FG(ANSI_WHITE),
-    ANSI_NORMAL,
+    ANSI_BRIGHT_FG(ANSI_GREEN),
     ANSI_BRIGHT_FG(ANSI_BLACK),
   };
 

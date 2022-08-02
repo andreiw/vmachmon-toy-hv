@@ -2,6 +2,7 @@
 
 #define ERR_LIST                                                      \
   ERR_DEF(ERR_NONE, "no error")                                       \
+  ERR_DEF(ERR_ASSERT, "assertion failure")                            \
   ERR_DEF(ERR_NOT_READY, "not ready")                                 \
   ERR_DEF(ERR_UNSUPPORTED, "not supported")                           \
   ERR_DEF(ERR_NO_MEM, "no memory")                                    \
@@ -13,7 +14,8 @@
 typedef enum {
   ERR_LIST
 } err_t;
+#undef ERR_DEF
 
+typedef uint32_t ha_t;
 typedef uint32_t gra_t;
 typedef uint32_t gea_t;
-

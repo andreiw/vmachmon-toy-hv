@@ -37,6 +37,9 @@ guest_init(bool little, size_t ram_size)
     guest->sr[i] = (i << SR_VSID_SHIFT);
   }
 
+  guest->regs->ppcMSR |= MSR_IR | MSR_DR;
+  guest->mmu_state = MMU_PSEUDO_ON;
+
   if (little) {
     guest->regs->ppcMSR |= MSR_LE;
   }
@@ -44,8 +47,47 @@ guest_init(bool little, size_t ram_size)
   return ERR_NONE;
 }
 
+err_t
+guest_map(ha_t host_address, gea_t ea)
+{
+  vmm_return_code_t vmm_ret;
+
+  BUG_ON((host_address & PAGE_MASK) != 0, "bad alignment");
+  BUG_ON((ea & PAGE_MASK) != 0, "bad alignment");
+
+  vmm_ret = vmm_call(kVmmMapPage, guest->vmm_index,
+                     host_address, ea, VM_PROT_ALL);
+  ON_VMM_ERROR("kVmmMapPage", vmm_ret, out);
+ out:
+  if (vmm_ret != kVmmReturnNull) {
+    return ERR_MACH;
+  }
+
+  return ERR_NONE;
+}
+
+err_t
+guest_backmap(gea_t ea, gra_t *gra)
+{
+  ha_t ha_base;
+  gea_t offset = ea & PAGE_MASK;
+
+  ha_base = vmm_call(kVmmGetPageMapping, guest->vmm_index, ea);
+  if (ha_base == (ha_t) -1) {
+    return ERR_NOT_FOUND;
+  }
+
+  return pmem_gra(ha_base + offset, gra);
+}
+
 bool
 guest_is_little(void)
 {
   return (guest->regs->ppcMSR & MSR_LE) != 0;
+}
+
+bool
+guest_mmu_allow_ra(void)
+{
+  return guest->mmu_state != MMU_ON;
 }
