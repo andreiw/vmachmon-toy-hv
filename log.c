@@ -1,5 +1,6 @@
 #include "pvp.h"
 #include "vmm.h"
+#include "libfdt.h"
 
 #define ANSI_CSI    "\33["
 #define ANSI_BLACK  0
@@ -48,6 +49,7 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
     ANSI_BRIGHT_FG(ANSI_RED),
     ANSI_BRIGHT_FG(ANSI_RED),
     ANSI_BRIGHT_FG(ANSI_RED),
+    ANSI_BRIGHT_FG(ANSI_RED),
     ANSI_BRIGHT_FG(ANSI_RED),    
     ANSI_BRIGHT_FG(ANSI_YELLOW),
     ANSI_BRIGHT_FG(ANSI_WHITE),
@@ -57,6 +59,7 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
 
   if (level > log_lvl &&
       level != LOG_ERROR &&
+      level != LOG_FDT_ERROR &&
       level != LOG_MACH_ERROR &&
       level != LOG_POSIX_ERROR &&
       level != LOG_VMM_ERROR &&
@@ -67,6 +70,7 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
   }
 
   if (level == LOG_ERROR ||
+      level == LOG_FDT_ERROR ||
       level == LOG_MACH_ERROR ||
       level == LOG_POSIX_ERROR ||
       level == LOG_VMM_ERROR ||
@@ -87,6 +91,7 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
   fprintf(f, ANSI_SET(colors[level]));
 
   if (level == LOG_ERROR ||
+      level == LOG_FDT_ERROR ||
       level == LOG_VMM_ERROR ||
       level == LOG_MACH_ERROR ||
       level == LOG_POSIX_ERROR) {
@@ -99,6 +104,8 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
       s = mach_error_string(error);
     } else if (level == LOG_POSIX_ERROR) {
       s = strerror(error);
+    } else if (level == LOG_FDT_ERROR) {
+      s = fdt_strerror(error);
     } else if (level == LOG_ERROR) {
       s = err_t_to_string(error);
     }

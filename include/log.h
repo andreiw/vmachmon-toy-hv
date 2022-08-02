@@ -10,14 +10,15 @@
 
 #define LOG_FATAL       0
 #define LOG_ERROR       1
-#define LOG_MACH_ERROR  2
-#define LOG_VMM_ERROR   3
-#define LOG_POSIX_ERROR 4
-#define LOG_WARN        5
-#define LOG_NORMAL      6
-#define LOG_VERBOSE     7
-#define LOG_DEBUG       8
-#define LOG_MAX         9
+#define LOG_FDT_ERROR   2
+#define LOG_MACH_ERROR  3
+#define LOG_VMM_ERROR   4
+#define LOG_POSIX_ERROR 5
+#define LOG_WARN        6
+#define LOG_NORMAL      7
+#define LOG_VERBOSE     8
+#define LOG_DEBUG       9
+#define LOG_MAX         10
 
 #ifndef LOG_LVL
 #define LOG_LVL LOG_DEBUG
