@@ -6,7 +6,7 @@
 guest_t *guest = & (guest_t) { 0 };
 
 err_t
-guest_init(bool little, size_t ram_size)
+guest_init(bool little, length_t ram_size)
 {
   int i;
   err_t err;
@@ -80,17 +80,6 @@ guest_backmap(gea_t ea, gra_t *gra)
   return pmem_gra(ha_base + offset, gra);
 }
 
-ha_t
-guest_backmap_ha(gea_t ea)
-{
-  gra_t gra;
-  if (guest_backmap(ea, &gra) != ERR_NONE) {
-    return 0;
-  }
-
-  return pmem_ha(gra);
-}
-
 bool
 guest_is_little(void)
 {
@@ -101,4 +90,29 @@ bool
 guest_mmu_allow_ra(void)
 {
   return guest->mmu_state != MMU_ON;
+}
+
+length_t
+guest_from(void *dest, gea_t src, length_t bytes)
+{
+  length_t left = bytes;
+  uint8_t *d = dest;
+
+  do {
+    gra_t gra;
+    length_t xfer_size = min(PAGE_SIZE - (src & PAGE_MASK), left);
+
+    if (guest_backmap(src, &gra) != ERR_NONE) {
+      WARN("backmap failure for 0x%x");
+      break;
+    }
+
+    pmem_from(d, gra, xfer_size);
+
+    left -= xfer_size;
+    d += xfer_size;
+    src += xfer_size;
+  } while (left != 0);
+
+  return bytes - left;
 }

@@ -145,8 +145,11 @@ rom_call(void)
 {
   gra_t pc;
   err_t err;
-  uint32_t *cia;
-  char *call;
+  gea_t cia;
+  gea_t call_ea;
+  uint32_t in_count;
+  uint32_t out_count;
+  char service[32];
   vmm_regs32_t *r = guest->regs;
 
   err = guest_backmap(r->ppcPC, &pc);
@@ -158,15 +161,25 @@ rom_call(void)
     return ERR_UNSUPPORTED;
   }
 
-  cia = (void *) guest_backmap_ha(r->ppcGPRs[3]);
-  if (cia == NULL) {
+  cia = r->ppcGPRs[3];
+  if (guest_from(&call_ea, cia + 0, sizeof(cia)) != sizeof(cia)) {
     WARN("could not access cia");
     goto done;
   }
 
-  call = (void *) guest_backmap_ha(cia[0]);
+  if (guest_from(&in_count, cia + 4, sizeof(in_count)) != sizeof(in_count)) {
+    WARN("could not acces in_count");
+    goto done;
+  }
+
+  if (guest_from(&out_count, cia + 8, sizeof(out_count)) != sizeof(out_count)) {
+    WARN("could not acces out_count");
+    goto done;
+  }
+
+  service[guest_from(&service, call_ea, sizeof(service))] = '\0';
   VERBOSE("OF call %s from 0x%x in %u out %u",
-          call, r->ppcLR, cia[1], cia[2]);
+          service, r->ppcLR, in_count, out_count);
 
 done:
   r->ppcPC = r->ppcLR;

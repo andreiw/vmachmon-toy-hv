@@ -2,7 +2,7 @@
 #include "pvp.h"
 
 static ha_t pmem;
-static size_t pmem_bytes;
+static length_t pmem_bytes;
 
 ha_t pmem_ha(gra_t ra)
 {
@@ -19,7 +19,7 @@ err_t pmem_gra(ha_t ha, gra_t *gra)
   return ERR_NOT_FOUND;
 }
 
-size_t pmem_size()
+length_t pmem_size()
 {
   return pmem_bytes;
 }
@@ -29,7 +29,7 @@ bool pmem_gra_valid(gra_t ra)
   return ra < pmem_bytes;
 }
 
-err_t pmem_init(size_t bytes)
+err_t pmem_init(length_t bytes)
 {
   mach_port_t mt;
   kern_return_t kr;
@@ -46,9 +46,17 @@ err:
   return ERR_MACH;
 }
 
-void
-pmem_to(gra_t dest, void *src, size_t bytes)
+length_t
+pmem_to(gra_t dest, void *src, length_t bytes)
 {
+  if (dest >= pmem_bytes) {
+    return 0;
+  }
+
+  if (dest + bytes > pmem_bytes) {
+    bytes = pmem_bytes - dest;
+  }
+
   if (guest_is_little()) {
     unsigned i;
     uint8_t *s = src;
@@ -60,11 +68,21 @@ pmem_to(gra_t dest, void *src, size_t bytes)
   } else {
     memcpy((void *) (pmem + dest), src, bytes);
   }
+
+  return bytes;
 }
 
-void
-pmem_from(void *dest, gra_t src, size_t bytes)
+length_t
+pmem_from(void *dest, gra_t src, length_t bytes)
 {
+  if (src >= pmem_bytes) {
+    return 0;
+  }
+
+  if (src + bytes > pmem_bytes) {
+    bytes = pmem_bytes - src;
+  }
+
   if (guest_is_little()) {
     unsigned i;
     uint8_t *s = (void *) (pmem + src);
@@ -76,4 +94,6 @@ pmem_from(void *dest, gra_t src, size_t bytes)
   } else {
     memcpy(dest, (void *) (pmem + src), bytes);
   }
+
+  return bytes;
 }

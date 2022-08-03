@@ -26,9 +26,9 @@ typedef struct guest_t {
 
 extern guest_t *guest;
 
-err_t guest_init(bool little, size_t ram_size);
+err_t guest_init(bool little, length_t ram_size);
 bool guest_is_little(void);
 bool guest_mmu_allow_ra(void);
 err_t guest_map(ha_t host_addres, gea_t ea);
 err_t guest_backmap(gea_t ea, gra_t *gra);
-ha_t guest_backmap_ha(gea_t ea);
+length_t guest_from(void *dest, gea_t src, length_t bytes);
