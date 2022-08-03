@@ -51,6 +51,9 @@ void _log(unsigned level, unsigned log_lvl, unsigned error_extra,
 #define ON_MACH_ERROR(msg, error, out) \
   if (error != KERN_SUCCESS) { MACH_ERROR(error, msg); goto out; }
 
+#define ON_POSIX_ERROR(msg, error, out) \
+  if (error < 0) { POSIX_ERROR(errno, msg); goto out; }
+
 #define ON_VMM_ERROR(msg, error, out) \
   if (error != kVmmReturnNull) { VMM_ERROR(error, msg); goto out; }
 

@@ -138,4 +138,6 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
     fputc('\n', f);
     exit(-1);
   }
+
+  fflush(f);
 }

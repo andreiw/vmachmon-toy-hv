@@ -80,6 +80,17 @@ guest_backmap(gea_t ea, gra_t *gra)
   return pmem_gra(ha_base + offset, gra);
 }
 
+ha_t
+guest_backmap_ha(gea_t ea)
+{
+  gra_t gra;
+  if (guest_backmap(ea, &gra) != ERR_NONE) {
+    return 0;
+  }
+
+  return pmem_ha(gra);
+}
+
 bool
 guest_is_little(void)
 {

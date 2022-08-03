@@ -18,7 +18,6 @@ typedef struct guest_t {
   uint32_t dbat[8];
   uint32_t sr[16];
   uint32_t hid0;
-  size_t ram_size;
   vmm_state_page_t *vmm;
   vmm_thread_index_t vmm_index;
   vmm_regs32_t *regs;
@@ -32,3 +31,4 @@ bool guest_is_little(void);
 bool guest_mmu_allow_ra(void);
 err_t guest_map(ha_t host_addres, gea_t ea);
 err_t guest_backmap(gea_t ea, gra_t *gra);
+ha_t guest_backmap_ha(gea_t ea);

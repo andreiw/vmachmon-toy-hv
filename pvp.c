@@ -1,46 +1,9 @@
 #include "guest.h"
+#include "rom.h"
 #include "ppc-defs.h"
 
-#include <fcntl.h>
-#include <errno.h>
-#include <sys/stat.h>
-
-#define PAGE2SP(x) ((void *)((x) + vm_page_size - C_RED_ZONE))
-
-void
-initGuestText_ROM(void)
-{
-  int fd;
-  gea_t guestTextAddress = 0;
-  gea_t guestStackAddress = 0;
-  vmm_return_code_t vmm_ret;
-  struct stat st;
-  size_t page_bytes;
-
-  guestTextAddress = 0x3e0000;
-  guestStackAddress = 2 * vm_page_size;
-  uint32_t hvcall = 0x0f040000;
-
-  fd = open("iquik.b", O_RDONLY);
-  if (fd == -1) {
-    POSIX_ERROR(errno, "open");
-  }
-
-  if (fstat(fd, &st) == -1) {
-    POSIX_ERROR(errno, "stat");
-  }
-
-  if (read(fd, (void *) pmem_ha(guestTextAddress), st.st_size) == -1) {
-    POSIX_ERROR(errno, "read");
-  }
-
-  guest->regs->ppcPC = guestTextAddress;
-  guest->regs->ppcGPRs[1] = (uint32_t)PAGE2SP(guestStackAddress);
-  guest->regs->ppcGPRs[5] = (uint32_t) 0x4; // CIF entry
-  pmem_to(0x4, &hvcall, sizeof(hvcall));
-}
-
 static bool cpu_little_endian = false;
+const char *fdt_path = "pvp.dtb";
 
 void
 usage(int argc, char **argv)
@@ -51,7 +14,7 @@ usage(int argc, char **argv)
   while (1) {
     int c;
     opterr = 0;
-    c = getopt(argc, argv, "L");
+    c = getopt(argc, argv, "F:L");
     if (c == -1) {
       break;
     } else if (c == '?') {
@@ -60,6 +23,9 @@ usage(int argc, char **argv)
     }
 
     switch (c) {
+    case 'F':
+      fdt_path = optarg;
+      break;
     case 'L':
       cpu_little_endian = true;
       break;
@@ -70,7 +36,7 @@ usage(int argc, char **argv)
     return;
   }
   
-  fprintf(stderr, "Usage: %s [-L]\n", argv[0]);
+  fprintf(stderr, "Usage: %s [-L] [-F fdt.dtb]\n", argv[0]);
   exit(1);
 }
    
@@ -78,21 +44,18 @@ int
 main(int argc, char **argv)
 {
   int i, j;
-
-  vmm_return_code_t   vmm_ret;
-  kern_return_t       kr;
-  unsigned long      *return_params32;
-  err_t               err;
+  kern_return_t kr;
+  vmm_return_code_t vmm_ret;
+  unsigned long *return_params32;
+  err_t err;
 
   usage(argc, argv);
 
   err = guest_init(cpu_little_endian, MB(32));
-  if (err != ERR_NONE) {
-    ERROR(err, "guest_init");
-    goto out;
-  }
+  ON_ERROR("guest_init", err, out);
 
-  initGuestText_ROM();
+  err = rom_init(fdt_path);
+  ON_ERROR("rom_init", err, out);
    
   LOG("Switching to guest virtual machine");
   while (1) {
@@ -128,28 +91,7 @@ main(int argc, char **argv)
     case kVmmReturnAlignmentFault:
       goto stop;
     case kVmmReturnProgramException:
-      if (guest->regs->ppcPC == 0x4) {
-        gra_t cia;
-        gea_t cif_0;
-        gra_t cif_0_ra;
-
-        err = guest_backmap(guest->regs->ppcGPRs[3], &cia);
-        ON_ERROR("guest_backmap", err, stop);
-        pmem_from(&cif_0, cia, 4);
-        err = guest_backmap(cif_0, &cif_0_ra);
-        ON_ERROR("guest_backmap", err, stop);
-
-        char *name = (char *) pmem_ha(cif_0_ra);
-
-        WARN("CIF call from 0%lx: %s", guest->regs->ppcLR, name);
-
-        if (!strcmp("finddevice", name)) {
-          gra_t p;
-          pmem_from(&p, cia + 3 * 4, 4);
-          WARN("-> %s", (char *) pmem_ha(p));
-        }
-
-        guest->regs->ppcPC = guest->regs->ppcLR;
+      if (rom_call() == ERR_NONE) {
         break;
       }
       goto stop;

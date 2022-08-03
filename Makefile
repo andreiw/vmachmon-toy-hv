@@ -1,7 +1,7 @@
 CC_FLAGS = -I./include
 
 all: pvp
-pvp: pvp.c vmm.c pmem.c log.c guest.c fdt.c fdt_ro.c fdt_strerror.c fdt_pvp.c
+pvp: pvp.c vmm.c pmem.c log.c guest.c fdt.c fdt_ro.c fdt_strerror.c fdt_pvp.c rom.c ranges.c
 	gcc -g $^ $(CC_FLAGS) -o $@
 
 clean:

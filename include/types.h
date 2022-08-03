@@ -8,6 +8,7 @@
   ERR_DEF(ERR_NO_MEM, "no memory")                                    \
   ERR_DEF(ERR_NOT_FOUND, "not found")                                 \
   ERR_DEF(ERR_MACH, "Mach error")                                     \
+  ERR_DEF(ERR_POSIX, "POSIX error")                                   \
   ERR_DEF(ERR_INVALID, "invalid error, likely a bug") /* last */
 
 #define ERR_DEF(e, s) e,
@@ -16,6 +17,9 @@ typedef enum {
 } err_t;
 #undef ERR_DEF
 
+typedef uint32_t length_t;
+typedef uint32_t offset_t;
+typedef uint32_t count_t;
 typedef uint32_t ha_t;
 typedef uint32_t gra_t;
 typedef uint32_t gea_t;
