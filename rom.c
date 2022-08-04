@@ -156,15 +156,11 @@ rom_finddevice(gea_t cia)
   int node;
   err_t err;
   gea_t dev_ea;
-  gea_t ihandle_ea;
   char *d = string_buf;
   uint32_t ihandle;
 
   err = guest_from(&dev_ea, CELL(cia, 3), sizeof(dev_ea));
   ON_ERROR("dev ea", err, done);
-
-  err = guest_from(&ihandle_ea, CELL(cia, 4), sizeof(ihandle_ea));
-  ON_ERROR("ihandle ea", err, done);
 
   d[guest_from_ex(d, dev_ea, sizeof(string_buf), true)] = '\0';
   node = fdt_path_offset(fdt, d);
@@ -176,7 +172,7 @@ rom_finddevice(gea_t cia)
     VERBOSE("'%s' -> node %u ihandle 0x%x", d, node, ihandle);
   }
 
-  err = guest_to(ihandle_ea, &ihandle, sizeof(ihandle));
+  err = guest_to(CELL(cia, 4), &ihandle, sizeof(ihandle));
   ON_ERROR("ihandle", err, done);
 
  done:
@@ -221,6 +217,9 @@ rom_call(void)
   err = ERR_UNSUPPORTED;
   if (!strcmp("finddevice", service)) {
     err = rom_finddevice(cia);
+  } else if (!strcmp("exit", service)) {
+    LOG("Stopping VM on request");
+    return ERR_SHUTDOWN;
   } else {
     WARN("unsupported CIF service '%s'", service);
   }
