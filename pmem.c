@@ -1,5 +1,6 @@
 #define LOG_PFX PMEM
 #include "pvp.h"
+#include "guest.h"
 
 static ha_t pmem;
 static length_t pmem_bytes;

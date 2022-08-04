@@ -1,4 +1,5 @@
 #include "guest.h"
+#include "pmem.h"
 #include "rom.h"
 #include "ppc-defs.h"
 
@@ -8,7 +9,6 @@ const char *fdt_path = "pvp.dtb";
 void
 usage(int argc, char **argv)
 {
-  int i;
   bool do_help = false;
 
   while (1) {
@@ -73,7 +73,6 @@ main(int argc, char **argv)
       {
         uint32_t address;
         uint32_t dsisr;
-        ha_t host_address;
 
         return_params32 = guest->vmm->vmmRet.vmmrp32.return_params;
         address = return_params32[0] & ~PAGE_MASK;

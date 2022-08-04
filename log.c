@@ -27,6 +27,7 @@ err_t_to_string(err_t code)
     code = ERR_INVALID;
   }
   switch(code) {
+  default:
     ERR_LIST
   }
 #undef ERR_DEF

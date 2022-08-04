@@ -2,6 +2,7 @@
 #include "rom.h"
 #include "ranges.h"
 #include "pmem.h"
+#include "libfdt.h"
 
 #include <fcntl.h>
 #include <errno.h>

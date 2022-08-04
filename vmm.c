@@ -54,7 +54,6 @@ err_t
 vmm_init(vmm_state_page_t **vm_state)
 {
   int i;
-  err_t err;
   vmm_version_t version;
   vmm_features_t features;
   kern_return_t kr;
