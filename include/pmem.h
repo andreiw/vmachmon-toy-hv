@@ -9,3 +9,5 @@ length_t pmem_size();
 bool pmem_gra_valid(gra_t ra);
 length_t pmem_to(gra_t dest, void *src, length_t bytes);
 length_t pmem_from(void *dest, gra_t src, length_t bytes);
+length_t pmem_from_ex(void *dest, gra_t src,
+                      length_t bytes, bool nul_term);

@@ -93,26 +93,88 @@ guest_mmu_allow_ra(void)
 }
 
 length_t
-guest_from(void *dest, gea_t src, length_t bytes)
+guest_from_ex(void *dest,
+              gea_t src,
+              length_t bytes,
+              bool nul_term)
 {
   length_t left = bytes;
   uint8_t *d = dest;
 
   do {
     gra_t gra;
+    length_t xferred;
     length_t xfer_size = min(PAGE_SIZE - (src & PAGE_MASK), left);
 
     if (guest_backmap(src, &gra) != ERR_NONE) {
-      WARN("backmap failure for 0x%x");
+      WARN("backmap failure for 0x%x", src);
       break;
     }
 
-    pmem_from(d, gra, xfer_size);
+    xferred = pmem_from_ex(d, gra, xfer_size, nul_term);
+    left -= xferred;
 
-    left -= xfer_size;
+    if (xferred != xfer_size) {
+      if (!nul_term) {
+        WARN("unexpected truncated transfer, %u left", left);
+      }
+      break;
+    }
+
     d += xfer_size;
     src += xfer_size;
   } while (left != 0);
 
   return bytes - left;
+}
+
+err_t
+guest_from(void *dest,
+           gea_t src,
+           length_t bytes)
+{
+  length_t xferred = guest_from_ex(dest, src, bytes, false);
+
+  if (xferred != bytes) {
+    return ERR_BAD_ACCESS;
+  }
+
+  return ERR_NONE;
+}
+
+err_t
+guest_to(gra_t dest,
+         void *src,
+         length_t bytes)
+{
+  length_t left = bytes;
+  uint8_t *s = src;
+
+  do {
+    gra_t gra;
+    length_t xferred;
+    length_t xfer_size = min(PAGE_SIZE - (dest & PAGE_MASK), left);
+
+    if (guest_backmap(dest, &gra) != ERR_NONE) {
+      WARN("backmap failure for 0x%x", dest);
+      break;
+    }
+
+    xferred = pmem_to(dest, s, xfer_size);
+    left -= xferred;
+
+    if (xferred != xfer_size) {
+      WARN("unexpected truncated transfer, %u left", left);
+      break;
+    }
+
+    s += xfer_size;
+    dest += xfer_size;
+  } while (left != 0);
+
+  if (left != 0) {
+    return ERR_BAD_ACCESS;
+  }
+
+  return ERR_NONE;
 }

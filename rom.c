@@ -7,7 +7,14 @@
 #include <errno.h>
 #include <sys/stat.h>
 
+#define CELL(x, i) (x + i * sizeof(cell_t))
+#define NODE_MUNGE(x) (x + 0x10000000)
+#define NODE_DEMUNGE(x) (x - 0x10000000)
 #define PAGE2SP(x) ((void *)((x) + vm_page_size - C_RED_ZONE))
+
+typedef uint32_t cell_t;
+typedef cell_t phandle_t;
+typedef cell_t ihandle_t;
 
 static void *fdt;
 static ranges_t guest_mem_avail_ranges;
@@ -18,6 +25,8 @@ static gra_t claim_arena_ptr;
 static gra_t claim_arena_end;
 static gra_t stack_start;
 static gra_t stack_end;
+
+static char string_buf[PAGE_SIZE];
 
 uint32_t
 rom_claim(uint32_t addr,
@@ -141,12 +150,45 @@ rom_init(const char *fdt_path)
 }
 
 err_t
+rom_finddevice(gea_t cia)
+{
+  int node;
+  err_t err;
+  gea_t dev_ea;
+  gea_t ihandle_ea;
+  char *d = string_buf;
+  uint32_t ihandle;
+
+  err = guest_from(&dev_ea, CELL(cia, 3), sizeof(dev_ea));
+  ON_ERROR("dev ea", err, done);
+
+  err = guest_from(&ihandle_ea, CELL(cia, 4), sizeof(ihandle_ea));
+  ON_ERROR("ihandle ea", err, done);
+
+  d[guest_from_ex(d, dev_ea, sizeof(string_buf), true)] = '\0';
+  node = fdt_path_offset(fdt, d);
+  if (node < 0) {
+    WARN("'%s' not found", d);
+    ihandle = -1;
+  } else {
+    ihandle = NODE_MUNGE(node);
+    VERBOSE("'%s' -> node %u ihandle 0x%x", d, node, ihandle);
+  }
+
+  err = guest_to(ihandle_ea, &ihandle, sizeof(ihandle));
+  ON_ERROR("ihandle", err, done);
+
+ done:
+  return err;
+}
+
+err_t
 rom_call(void)
 {
   gra_t pc;
   err_t err;
   gea_t cia;
-  gea_t call_ea;
+  gea_t service_ea;
   uint32_t in_count;
   uint32_t out_count;
   char service[32];
@@ -162,26 +204,33 @@ rom_call(void)
   }
 
   cia = r->ppcGPRs[3];
-  if (guest_from(&call_ea, cia + 0, sizeof(cia)) != sizeof(cia)) {
-    WARN("could not access cia");
-    goto done;
-  }
+  err = guest_from(&service_ea, CELL(cia, 0), sizeof(cia));
+  ON_ERROR("service ea", err, done);
 
-  if (guest_from(&in_count, cia + 4, sizeof(in_count)) != sizeof(in_count)) {
-    WARN("could not acces in_count");
-    goto done;
-  }
+  err = guest_from(&in_count, CELL(cia, 1), sizeof(in_count));
+  ON_ERROR("in count", err, done);
 
-  if (guest_from(&out_count, cia + 8, sizeof(out_count)) != sizeof(out_count)) {
-    WARN("could not acces out_count");
-    goto done;
-  }
+  err = guest_from(&out_count, CELL(cia, 2), sizeof(out_count));
+  ON_ERROR("out count", err, done);
 
-  service[guest_from(&service, call_ea, sizeof(service))] = '\0';
-  VERBOSE("OF call %s from 0x%x in %u out %u",
-          service, r->ppcLR, in_count, out_count);
+  service[guest_from_ex(&service, service_ea, sizeof(service) - 1, true)] = '\0';
+  VERBOSE("OF call '%s' from 0x%x cia 0x%x in %u out %u",
+          service, r->ppcLR, cia, in_count, out_count);
+
+  err = ERR_UNSUPPORTED;
+  if (!strcmp("finddevice", service)) {
+    err = rom_finddevice(cia);
+  } else {
+    WARN("unsupported CIF service '%s'", service);
+  }
 
 done:
+  if (err == ERR_NONE) {
+    r->ppcGPRs[3] = 0;
+  } else {
+    r->ppcGPRs[3] = -1;
+  }
+
   r->ppcPC = r->ppcLR;
   return ERR_NONE;
 }

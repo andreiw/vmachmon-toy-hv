@@ -4,6 +4,7 @@
   ERR_DEF(ERR_NONE, "no error")                                       \
   ERR_DEF(ERR_ASSERT, "assertion failure")                            \
   ERR_DEF(ERR_NOT_READY, "not ready")                                 \
+  ERR_DEF(ERR_BAD_ACCESS, "bad access to guest memory")               \
   ERR_DEF(ERR_UNSUPPORTED, "not supported")                           \
   ERR_DEF(ERR_NO_MEM, "no memory")                                    \
   ERR_DEF(ERR_NOT_FOUND, "not found")                                 \

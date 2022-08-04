@@ -73,8 +73,17 @@ pmem_to(gra_t dest, void *src, length_t bytes)
 }
 
 length_t
-pmem_from(void *dest, gra_t src, length_t bytes)
+pmem_from_ex(void *dest,
+             gra_t src,
+             length_t bytes,
+             bool nul_term)
 {
+  /*
+   * If nul_term is set, will return bytes copied
+   * *not* including the NUL (but the NUL will be
+   * copied).
+   */
+
   if (src >= pmem_bytes) {
     return 0;
   }
@@ -90,10 +99,24 @@ pmem_from(void *dest, gra_t src, length_t bytes)
 
     for (i = 0; i < bytes; i++) {
       d[i] = s[i ^ 7];
+
+      if (nul_term && d[i] == 0) {
+        return i;
+      }
     }
   } else {
-    memcpy(dest, (void *) (pmem + src), bytes);
+    if (nul_term) {
+      return strlcpy(dest, (void *) pmem + src, bytes);
+    } else {
+      memcpy(dest, (void *) (pmem + src), bytes);
+    }
   }
 
   return bytes;
+}
+
+length_t
+pmem_from(void *dest, gra_t src, length_t bytes)
+{
+  return pmem_from_ex(dest, src, bytes, false);
 }

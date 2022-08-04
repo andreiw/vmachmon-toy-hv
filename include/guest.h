@@ -31,4 +31,7 @@ bool guest_is_little(void);
 bool guest_mmu_allow_ra(void);
 err_t guest_map(ha_t host_addres, gea_t ea);
 err_t guest_backmap(gea_t ea, gra_t *gra);
-length_t guest_from(void *dest, gea_t src, length_t bytes);
+err_t guest_from(void *dest, gea_t src, length_t bytes);
+length_t guest_from_ex(void *dest, gea_t src, length_t bytes,
+                       bool nul_term);
+err_t guest_to(gra_t dest, void *src, length_t bytes);
