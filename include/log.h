@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <errno.h>
 
 #ifndef LOG_PFX
 #define LOG_PFX PVP

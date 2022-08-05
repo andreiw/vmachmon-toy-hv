@@ -2,9 +2,11 @@
 #include "pmem.h"
 #include "rom.h"
 #include "ppc-defs.h"
+#include "term.h"
 
 static bool cpu_little_endian = false;
 const char *fdt_path = "pvp.dtb";
+const char *con_path = "/tmp/pvp_con";
 
 void
 usage(int argc, char **argv)
@@ -14,7 +16,7 @@ usage(int argc, char **argv)
   while (1) {
     int c;
     opterr = 0;
-    c = getopt(argc, argv, "F:L");
+    c = getopt(argc, argv, "C:F:L");
     if (c == -1) {
       break;
     } else if (c == '?') {
@@ -23,6 +25,9 @@ usage(int argc, char **argv)
     }
 
     switch (c) {
+    case 'C':
+      con_path = optarg;
+      break;
     case 'F':
       fdt_path = optarg;
       break;
@@ -36,7 +41,7 @@ usage(int argc, char **argv)
     return;
   }
   
-  fprintf(stderr, "Usage: %s [-L] [-F fdt.dtb]\n", argv[0]);
+  fprintf(stderr, "Usage: %s [-L] [-C con_pipe] [-F fdt.dtb]\n", argv[0]);
   exit(1);
 }
    
@@ -49,6 +54,9 @@ main(int argc, char **argv)
   err_t err;
 
   usage(argc, argv);
+
+  err = term_init(con_path);
+  ON_ERROR("term_init", err, out);
 
   err = guest_init(cpu_little_endian, MB(32));
   ON_ERROR("guest_init", err, out);

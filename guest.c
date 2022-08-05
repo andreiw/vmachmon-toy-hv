@@ -1,3 +1,4 @@
+#define LOG_PFX GUEST
 #include "guest.h"
 #include "pmem.h"
 #include "vmm.h"

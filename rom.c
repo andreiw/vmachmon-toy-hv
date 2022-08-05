@@ -5,11 +5,13 @@
  * ihandles and phandles are equivalent.
  */
 
+#define LOG_PFX ROM
 #include "guest.h"
 #include "rom.h"
 #include "ranges.h"
 #include "pmem.h"
 #include "libfdt.h"
+#include "term.h"
 
 #include <fcntl.h>
 #include <errno.h>
@@ -308,13 +310,12 @@ rom_write(gea_t cia)
 
   len_out = len_in;
   do {
-    length_t xfer = min(len_in, (sizeof(xfer_buf) - 1));
+    length_t xfer = min(len_in, sizeof(xfer_buf));
 
     err = guest_from(xfer_buf, data_ea, xfer, 1);
     ON_ERROR("data", err, partial);
 
-    xfer_buf[xfer] = '\0';
-    fprintf(stderr, xfer_buf);
+    term_out(xfer_buf, xfer);
 
     len_in -= xfer;
     data_ea += xfer;
