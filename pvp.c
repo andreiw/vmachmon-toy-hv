@@ -43,7 +43,6 @@ usage(int argc, char **argv)
 int
 main(int argc, char **argv)
 {
-  int i, j;
   kern_return_t kr;
   vmm_return_code_t vmm_ret;
   unsigned long *return_params32;
@@ -95,7 +94,8 @@ main(int argc, char **argv)
       }
       goto stop;
     case kVmmReturnTraceException:
-      goto stop;
+      guest_dump();
+      continue;
     case kVmmAltivecAssist:
       goto stop;
     case kVmmInvalidAdSpace:
@@ -109,38 +109,7 @@ main(int argc, char **argv)
     break;
   }
 
-  LOG("Processor state:");
-
-  LOG("  PC                   = %p (%lu)",
-      (void *)guest->regs->ppcPC, guest->regs->ppcPC);
-   
-  LOG("  Instruction at PC    = %#08x",
-      *(u_int32_t *)pmem_ha(guest->regs->ppcPC));
-   
-  LOG("  CR                   = %#08lx"
-      "                         ", guest->regs->ppcCR);
-
-  LOG("  LR                   = %#08lx (%lu)",
-      guest->regs->ppcLR, guest->regs->ppcLR);
-   
-  LOG("  MSR                  = %#08lx"
-      "                         ", guest->regs->ppcMSR);
-
-  LOG("  return_code          = %#08lx (%s)",
-      guest->vmm->return_code, vmm_return_code_to_string(guest->vmm->return_code));
-   
-  return_params32 = guest->vmm->vmmRet.vmmrp32.return_params;
-   
-  for (i = 0; i < 4; i++)
-    LOG("  return_params32[%d]   = 0x%08lx (%lu)", i,
-        return_params32[i], return_params32[i]);
-   
-  LOG("  GPRs:");
-  for (j = 0; j < 16; j++) {
-    LOG("r%-2d = %#08lx r%-2d = %#08lx",
-        j * 2, guest->regs->ppcGPRs[j * 2],
-        j * 2 + 1, guest->regs->ppcGPRs[j * 2 + 1]);
-  }
+  guest_dump();
    
   // Tear down the virtual machine ... that's all for now
   kr = vmm_call(kVmmTearDownContext, guest->vmm_index);

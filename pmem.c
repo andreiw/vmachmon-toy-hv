@@ -48,7 +48,10 @@ err:
 }
 
 length_t
-pmem_to(gra_t dest, void *src, length_t bytes)
+pmem_to(gra_t dest,
+        const void *src,
+        length_t bytes,
+        length_t access_size)
 {
   if (dest >= pmem_bytes) {
     return 0;
@@ -58,13 +61,22 @@ pmem_to(gra_t dest, void *src, length_t bytes)
     bytes = pmem_bytes - dest;
   }
 
+  BUG_ON(bytes % access_size != 0, "bad alignment");
+  BUG_ON(access_size != 1 && access_size != 2 && access_size != 4,
+         "bad access_size");
+
   if (guest_is_little()) {
     unsigned i;
-    uint8_t *s = src;
-    uint8_t *d = (void *) (pmem + dest);
+    ha_t d = pmem + dest;
 
-    for (i = 0; i < bytes; i++) {
-      d[i ^ 7] = s[i];
+    for (i = 0; i < bytes; i += access_size) {
+      if (access_size == 1) {
+        *(uint8_t *)((d + i) ^ 7) = *(uint8_t *)(src + i);
+      } else if (access_size == 2) {
+        *(uint16_t *)((d + i) ^ 6) = *(uint16_t *)(src + i);
+      } else if (access_size == 4) {
+        *(uint32_t *)((d + i) ^ 4) = *(uint32_t *)(src + i);
+      }
     }
   } else {
     memcpy((void *) (pmem + dest), src, bytes);
@@ -77,6 +89,7 @@ length_t
 pmem_from_ex(void *dest,
              gra_t src,
              length_t bytes,
+             length_t access_size,
              bool nul_term)
 {
   /*
@@ -93,16 +106,26 @@ pmem_from_ex(void *dest,
     bytes = pmem_bytes - src;
   }
 
+  BUG_ON(bytes % access_size != 0, "bad alignment");
+  BUG_ON(access_size != 1 && access_size != 2 && access_size != 4,
+         "bad access_size");
+
   if (guest_is_little()) {
     unsigned i;
-    uint8_t *s = (void *) (pmem + src);
-    uint8_t *d = dest;
+    ha_t s = pmem + src;
 
-    for (i = 0; i < bytes; i++) {
-      d[i] = s[i ^ 7];
+    for (i = 0; i < bytes; i += access_size) {
+      if (access_size == 1) {
+        uint8_t v;
+        v = *(uint8_t *)(dest + i) = *(uint8_t *) ((s + i) ^ 7);
 
-      if (nul_term && d[i] == 0) {
-        return i;
+        if (nul_term && v == 0) {
+          return i;
+        }
+      } else if (access_size == 2) {
+        *(uint16_t *)(dest + i) = *(uint16_t *) ((s + i) ^ 6);
+      } else if (access_size == 4) {
+        *(uint32_t *)(dest + i) = *(uint32_t *) ((s + i) ^ 4);
       }
     }
   } else {
@@ -117,7 +140,10 @@ pmem_from_ex(void *dest,
 }
 
 length_t
-pmem_from(void *dest, gra_t src, length_t bytes)
+pmem_from(void *dest,
+          gra_t src,
+          length_t bytes,
+          length_t access_size)
 {
-  return pmem_from_ex(dest, src, bytes, false);
+  return pmem_from_ex(dest, src, bytes, access_size, false);
 }

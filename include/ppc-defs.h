@@ -2,6 +2,7 @@
 
 #define PPC_BITS(x) (1UL << (31 - x))
 
+#define MSR_SE PPC_BITS(21) /* Single Step */
 #define MSR_IR PPC_BITS(26) /* Instruction Relocate */
 #define MSR_DR PPC_BITS(27) /* Data Relocate */
 #define MSR_LE PPC_BITS(31) /* Little Endian */
