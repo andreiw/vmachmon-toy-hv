@@ -441,11 +441,63 @@ rom_finddevice(gea_t cia)
 }
 
 static err_t
+rom_read(gea_t cia)
+{
+  err_t err;
+  ihandle_t ihandle;
+  cell_t data_ea;
+  cell_t len_in;
+  cell_t len_out;
+
+  err = guest_from_x(&ihandle, CELL(cia, 3));
+  ON_ERROR("ihandle", err, done);
+
+  err = guest_from_x(&data_ea, CELL(cia, 4));
+  ON_ERROR("data ea", err, done);
+
+  err = guest_from_x(&len_in, CELL(cia, 5));
+  ON_ERROR("data ea", err, done);
+  len_out = len_in;
+
+  do {
+    length_t xferred;
+    length_t xfer = min(len_in, sizeof(xfer_buf));
+
+    xferred = term_in(xfer_buf, xfer);
+
+    err = guest_to(data_ea, xfer_buf, xferred, 1);
+    ON_ERROR("data", err, partial);
+
+    if (xferred != xfer) {
+      err = ERR_NOT_READY;
+      goto partial;
+    }
+
+    len_in -= xfer;
+    data_ea += xfer;
+  } while (len_in != 0);
+
+ partial:
+  if (err == ERR_BAD_ACCESS || err == ERR_NOT_READY) {
+    err = ERR_NONE;
+  }
+
+  if (err == ERR_NONE) {
+    len_out -= len_in;
+    err = guest_to_x(CELL(cia, 6), &len_out);
+    ON_ERROR("len_out", err, done);
+  }
+
+ done:
+  return err;
+}
+
+static err_t
 rom_write(gea_t cia)
 {
   err_t err;
   ihandle_t ihandle;
-  gea_t data_ea;
+  cell_t data_ea;
   cell_t len_in;
   cell_t len_out;
 
@@ -490,6 +542,7 @@ cif_handler_t handlers[] = {
   { rom_finddevice, "finddevice" },
   { rom_getprop, "getprop" },
   { rom_write, "write" },
+  { rom_read, "read" },
   { rom_claim, "claim" },
   { rom_milliseconds, "milliseconds" },
 };

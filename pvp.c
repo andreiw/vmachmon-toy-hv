@@ -6,7 +6,6 @@
 
 static bool cpu_little_endian = false;
 const char *fdt_path = "pvp.dtb";
-const char *con_path = "/tmp/pvp_con";
 
 void
 usage(int argc, char **argv)
@@ -25,9 +24,6 @@ usage(int argc, char **argv)
     }
 
     switch (c) {
-    case 'C':
-      con_path = optarg;
-      break;
     case 'F':
       fdt_path = optarg;
       break;
@@ -41,7 +37,7 @@ usage(int argc, char **argv)
     return;
   }
   
-  fprintf(stderr, "Usage: %s [-L] [-C con_pipe] [-F fdt.dtb]\n", argv[0]);
+  fprintf(stderr, "Usage: %s [-L] [-F fdt.dtb]\n", argv[0]);
   exit(1);
 }
    
@@ -55,14 +51,14 @@ main(int argc, char **argv)
 
   usage(argc, argv);
 
-  err = term_init(con_path);
-  ON_ERROR("term_init", err, out);
-
   err = guest_init(cpu_little_endian, MB(32));
   ON_ERROR("guest_init", err, out);
 
   err = rom_init(fdt_path);
   ON_ERROR("rom_init", err, out);
+
+  err = term_init();
+  ON_ERROR("term_init", err, out);
    
   LOG("Switching to guest virtual machine");
   while (1) {
@@ -126,6 +122,8 @@ main(int argc, char **argv)
   kr = vmm_call(kVmmTearDownContext, guest->vmm_index);
   ON_MACH_ERROR("vmm_init_context", kr, out);
   VERBOSE("Virtual machine context torn down");
+
+  term_bye();
 
 out:
   exit(kr);
