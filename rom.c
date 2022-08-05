@@ -1,3 +1,10 @@
+/*
+ * This either loads iquik.b (BE) or veneer.exe (LE) and
+ * emulates just enough OF CIF. Because I am lazy, this uses
+ * libfdt and a DTB blob. Given these circumstances,
+ * ihandles and phandles are equivalent.
+ */
+
 #include "guest.h"
 #include "rom.h"
 #include "ranges.h"
