@@ -97,9 +97,6 @@ main(int argc, char **argv)
     case kVmmReturnAlignmentFault:
       goto stop;
     case kVmmReturnProgramException:
-      if (rom_call() == ERR_NONE) {
-        break;
-      }
       goto stop;
     case kVmmReturnTraceException:
       guest_dump();
@@ -108,6 +105,12 @@ main(int argc, char **argv)
       goto stop;
     case kVmmInvalidAdSpace:
       goto stop;
+    case kVmmReturnSystemCall:
+      err = rom_call();
+      if (err != ERR_NOT_ROM_CALL &&
+          err != ERR_SHUTDOWN) {
+        break;
+      }
     default:
       goto stop;
     }

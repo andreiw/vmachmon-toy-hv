@@ -11,6 +11,7 @@
   ERR_DEF(ERR_MACH, "Mach error")                                     \
   ERR_DEF(ERR_SHUTDOWN, "Guest requested shutdown")                   \
   ERR_DEF(ERR_POSIX, "POSIX error")                                   \
+  ERR_DEF(ERR_NOT_ROM_CALL, "Not a ROM call")                         \
   ERR_DEF(ERR_INVALID, "invalid error, likely a bug") /* last */
 
 #define ERR_DEF(e, s) e,
