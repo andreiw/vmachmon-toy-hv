@@ -3,6 +3,7 @@
 #include "rom.h"
 #include "ppc-defs.h"
 #include "term.h"
+#include "mon.h"
 
 static bool cpu_little_endian = false;
 const char *fdt_path = "pvp.dtb";
@@ -54,23 +55,30 @@ main(int argc, char **argv)
   err = guest_init(cpu_little_endian, MB(32));
   ON_ERROR("guest_init", err, out);
 
+  err = term_init();
+  ON_ERROR("term_init", err, out);
+
   err = rom_init(fdt_path);
   ON_ERROR("rom_init", err, out);
 
-  err = term_init();
-  ON_ERROR("term_init", err, out);
+  err = mon_init();
+  ON_ERROR("mon_init", err, out);
    
   LOG("Switching to guest virtual machine");
   while (1) {
-    vmm_ret = vmm_call(kVmmExecuteVM, guest->vmm_index);
+    err = mon_check();
+    if (err != ERR_NONE && err != ERR_CONTINUE) {
+      break;
+    }
 
+    vmm_ret = vmm_call(kVmmExecuteVM, guest->vmm_index);
     switch (vmm_ret) {
     case kVmmReturnNull:
       break;
     case kVmmBogusContext:
-      goto stop;
+      goto unhandled;
     case kVmmStopped:
-      goto stop;;
+      goto unhandled;
     case kVmmReturnDataPageFault:
     case kVmmReturnInstrPageFault:
       {
@@ -85,45 +93,53 @@ main(int argc, char **argv)
             pmem_gra_valid(address) &&
             (dsisr & DSISR_NOT_PRESENT) != 0) {
           err = guest_map(pmem_ha(address), address);
-          ON_ERROR("guest_map", err, stop);
+          ON_ERROR("guest_map", err, unhandled);
           continue;
         }
       }
-      goto stop;
+      goto unhandled;
     case kVmmReturnAlignmentFault:
-      goto stop;
+      goto unhandled;
     case kVmmReturnProgramException:
-      goto stop;
+      goto unhandled;
     case kVmmReturnTraceException:
       guest_dump();
       continue;
     case kVmmAltivecAssist:
-      goto stop;
+      goto unhandled;
     case kVmmInvalidAdSpace:
-      goto stop;
+      goto unhandled;
     case kVmmReturnSystemCall:
       err = rom_call();
-      if (err != ERR_NOT_ROM_CALL &&
-          err != ERR_SHUTDOWN) {
-        break;
+      if (err == ERR_SHUTDOWN) {
+        goto stop;
+      } else if (err != ERR_NONE) {
+        ERROR(err, "rom_call");
+        goto unhandled;
       }
+
+      break;
     default:
-      goto stop;
+      goto unhandled;
     }
 
     continue;
-  stop:
-    break;
+  unhandled:
+    VMM_ERROR(vmm_ret, "Unhandled VMM exit");
+    guest_dump();
+    if (mon_activate() != ERR_NONE) {
+      break;
+    }
   }
+ stop:
 
-  guest_dump();
-   
-  // Tear down the virtual machine ... that's all for now
+  LOG("Requested VM stop");
   kr = vmm_call(kVmmTearDownContext, guest->vmm_index);
   ON_MACH_ERROR("vmm_init_context", kr, out);
   VERBOSE("Virtual machine context torn down");
 
   term_bye();
+  mon_bye();
 
 out:
   exit(kr);

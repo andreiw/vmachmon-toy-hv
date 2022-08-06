@@ -15,3 +15,4 @@ void socket_out(socket_t *s, const char *buf, length_t len);
 length_t socket_in(socket_t *s, char *buf, length_t expected);
 void socket_disconnect(socket_t *s);
 err_t socket_handle_connect(socket_t *s);
+bool socket_connected(socket_t *s);

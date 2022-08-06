@@ -538,12 +538,22 @@ rom_write(gea_t cia)
   return err;
 }
 
+static err_t
+rom_shutdown(gea_t cia)
+{
+  return ERR_SHUTDOWN;
+}
+
 cif_handler_t handlers[] = {
   { rom_finddevice, "finddevice" },
   { rom_getprop, "getprop" },
   { rom_write, "write" },
   { rom_read, "read" },
   { rom_claim, "claim" },
+  { rom_shutdown, "exit" },
+  { rom_shutdown, "enter" },
+  { rom_shutdown, "boot" },
+  { rom_shutdown, "chain" },
   { rom_milliseconds, "milliseconds" },
 };
 
@@ -591,7 +601,11 @@ rom_call(void)
   if (i == ARRAY_LEN(handlers)) {
     WARN("Unsupported OF call '%s' from 0x%x cia 0x%x in %u out %u",
           service, r->ppcLR, cia, in_count, out_count);
-    return ERR_SHUTDOWN;
+    return ERR_UNSUPPORTED;
+  }
+
+  if (err == ERR_SHUTDOWN) {
+    return err;
   }
 
 done:

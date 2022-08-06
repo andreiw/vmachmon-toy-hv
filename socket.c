@@ -1,3 +1,4 @@
+#define LOG_PFX SOCKET
 #include "socket.h"
 
 #include <sys/types.h>
@@ -5,6 +6,12 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <fcntl.h>
+
+bool
+socket_connected(socket_t *s)
+{
+  return s->fd != -1;
+}
 
 void
 socket_disconnect(socket_t *s)

@@ -42,8 +42,8 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
 {
   unsigned i;
   va_list ap;
-  char buf[1024];
   FILE *f;
+  static char buf[1024];
 
   unsigned colors[LOG_MAX] = {
     ANSI_BRIGHT_FG(ANSI_MGENTA),
