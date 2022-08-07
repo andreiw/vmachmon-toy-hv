@@ -567,6 +567,13 @@ picolResult picolRenameCmd(picolInterp *interp, const char *from,
 #ifdef PICOL_IMPLEMENTATION
 
 /* --------------------------------------------------------- parser functions */
+int picolAtoi(picolInterp *interp, const char *b) {
+    if (interp->int_base_16) {
+       return strtol(b, NULL, 16);
+    }
+
+    return strtol(b, NULL, 10);
+}
 void picolInitParser(picolParser* p, const char* text) {
     p->text  = p->pos = text;
     p->len   = strlen(text);
@@ -1577,13 +1584,15 @@ picolResult picolCondition(picolInterp* interp, const char* str) {
             rc = picolErr(interp, PICOL_ERROR_TOO_LONG);
             goto ret;
         }
+
         rc = picolEval(interp, buf);
         if (rc != PICOL_OK) {
             goto ret;
         }
 
         /* Three elements? */
-        if (PICOL_EQ(interp->result, "3")) {
+        if ((!interp->int_base_16 && PICOL_EQ(interp->result, "3")) ||
+            (interp->int_base_16 && PICOL_EQ(interp->result, "0x3"))) {
             PICOL_FOREACH(buf, PICOL_BUFFER_SIZE(buf), cp, substBuf) {
                 argv[a++] = strdup(buf);
             }
@@ -3212,7 +3221,8 @@ PICOL_COMMAND(for) {
         if (rc != PICOL_OK) {
             return rc;
         }
-        if (atoi(interp->result)==0) {
+
+        if (picolAtoi(interp, interp->result)==0) {
             return picolSetResult(interp, "");
         }
     }
@@ -3511,7 +3521,7 @@ PICOL_COMMAND(if) {
     if ((rc = picolCondition(interp, argv[1])) != PICOL_OK) {
         return rc;
     }
-    if (atoi(interp->result)) {
+    if (picolAtoi(interp, interp->result)) {
         return picolEval(interp, argv[2]);
     } else {
         for (i = 3; i < argc; i += 3) {
@@ -3519,7 +3529,7 @@ PICOL_COMMAND(if) {
                 if ((rc = picolCondition(interp, argv[i + 1])) != PICOL_OK) {
                     return rc;
                 }
-                if (atoi(interp->result)) {
+                if (picolAtoi(interp, interp->result)) {
                     return picolEval(interp, argv[i + 2]);
                 }
              } else { /* argv[i] is "else" */
@@ -5302,7 +5312,7 @@ PICOL_COMMAND(while) {
         if (rc != PICOL_OK) {
             return rc;
         }
-        if (atoi(interp->result)) {
+        if (picolAtoi(interp, interp->result)) {
             rc = picolEval(interp, argv[2]);
             if (rc == PICOL_CONTINUE || rc == PICOL_OK)  {
                 continue;
