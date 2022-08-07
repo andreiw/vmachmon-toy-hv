@@ -26,6 +26,10 @@
 #define PICOL_EVAL_BUF_SIZE    (PICOL_MAX_STR*2)
 #define PICOL_SOURCE_BUF_SIZE  (PICOL_MAX_STR*64)
 
+#ifndef PICOL_INT_BASE_16
+#    define PICOL_INT_BASE_16 0
+#endif
+
 #ifndef PICOL_SMALL_STACK
 #    define PICOL_SMALL_STACK  1
 #endif
@@ -345,6 +349,7 @@ typedef struct picolInterp {
     char*           result;
     int             debug;      /* 1 to display each command, 0 not to */
     picolPtr*       validptrs;
+    int             int_base_16;
 } picolInterp;
 
 #define PICOL_ARR_BUCKETS 32
@@ -361,7 +366,7 @@ typedef struct picolArray {
 #define picolGetVar(_i, _n)            picolGetVar2(_i, _n, 0)
 #define picolSetBoolResult(_i, x)      picolSetFmtResult(_i, "%d", !!x)
 #define picolSetGlobalVar(_i, _n, _v)  picolSetVar2(_i, _n, _v, 1)
-#define picolSetIntResult(_i, x)       picolSetFmtResult(_i, "%d", x)
+#define picolSetIntResult(_i, x)       picolSetFmtResult(_i, _i->int_base_16 ? "0x%x" : "%d", x)
 #define picolSetVar(_i, _n, _v)        picolSetVar2(_i, _n, _v, 0)
 #define picolSubst(_i, _t)             picolEval2(_i, _t, 0)
 
@@ -382,6 +387,7 @@ PICOL_COMMAND(after);
 PICOL_COMMAND(append);
 PICOL_COMMAND(apply);
 PICOL_COMMAND(bitwise_not);
+PICOL_COMMAND(base);
 PICOL_COMMAND(break);
 PICOL_COMMAND(catch);
 PICOL_COMMAND(clock);
@@ -984,7 +990,7 @@ picolResult picolSetVar2(
 }
 picolResult picolSetIntVar(picolInterp* interp, const char* name, int value) {
     char buf[32];
-    PICOL_SNPRINTF(buf, sizeof(buf), "%d", value);
+    PICOL_SNPRINTF(buf, sizeof(buf), interp->int_base_16 ? "0x%x" : "%d", value);
     return picolSetVar(interp, name, buf);
 }
 picolResult picolGetToken(picolInterp* interp, picolParser* p) {
@@ -1046,6 +1052,8 @@ void picolInitInterp(picolInterp* interp) {
     interp->callframe->vars = NULL;
     interp->callframe->command = NULL;
     interp->callframe->parent = NULL;
+
+    interp->int_base_16 = PICOL_INT_BASE_16;
 }
 void picolFreeCmd(picolCmd* cmd) {
     if (cmd == NULL) return;
@@ -2659,6 +2667,25 @@ PICOL_COMMAND(array) {
     return PICOL_OK;
 }
 #endif /* PICOL_FEATURE_ARRAYS */
+PICOL_COMMAND(base)     {
+    int v;
+    PICOL_UNUSED(pd);
+    PICOL_ARITY2(argc == 1 || argc == 2, "base ?base");
+
+    if (argc == 1) {
+      return picolSetIntResult(interp, interp->int_base_16 ? 16 : 10);
+    }
+
+    PICOL_SCAN_INT(v, argv[1]);
+    if (v == 10) {
+      interp->int_base_16 = 0;
+    } else if (v == 16) {
+      interp->int_base_16 = 1;
+    } else {
+      return PICOL_ERR;
+    }
+    return PICOL_OK;
+}
 PICOL_COMMAND(break)    {
     PICOL_UNUSED(pd);
 
@@ -5307,6 +5334,7 @@ void picolRegisterCoreCmds(picolInterp* interp) {
 #endif
     picolRegisterCmd(interp, "append",   picol_append, NULL);
     picolRegisterCmd(interp, "apply",    picol_apply, NULL);
+    picolRegisterCmd(interp, "base",     picol_base, NULL);
     picolRegisterCmd(interp, "break",    picol_break, NULL);
     picolRegisterCmd(interp, "catch",    picol_catch, NULL);
     picolRegisterCmd(interp, "clock",    picol_clock, NULL);

@@ -1,6 +1,8 @@
 #define LOG_PFX MON
 #include "mon.h"
 #include "socket.h"
+#include "guest.h"
+#include "vmm.h"
 
 static int
 mon_fprintf(void *unused,
@@ -8,32 +10,79 @@ mon_fprintf(void *unused,
             ...);
 
 #define PICOL_IMPLEMENTATION
+#define PICOL_INT_BASE_16    1
 #define fflush(x)
 #define fprintf(x, fmt, ...) mon_fprintf(x, fmt, ## __VA_ARGS__)
+#define mon_printf(fmt, ...) mon_fprintf(NULL,  fmt, ## __VA_ARGS__)
 #include "picol.h"
 
 #define PORT      7001
 #define IBUF_SIZE PAGE_SIZE
-#define PROMPT    "(PVP) "
 
 static socket_t s;
 static char *ibuf;
 static unsigned ibuf_index;
 static picolInterp *interp;
 static err_t picol_err;
+static bool activated;
+static bool pend_prompt;
 
 PICOL_COMMAND(quit) {
-  PICOL_ARITY2(argc == 1, "stop VM");
+  PICOL_ARITY2(argc == 1, "stop");
 
   *(err_t *)pd = ERR_SHUTDOWN;
   return PICOL_OK;
 }
 
 PICOL_COMMAND(cont) {
-  PICOL_ARITY2(argc == 1, "continue VM");
+  PICOL_ARITY2(argc == 1, "cont");
 
   *(err_t *)pd = ERR_CONTINUE;
   return PICOL_OK;
+}
+
+PICOL_COMMAND(ss) {
+  PICOL_ARITY2(argc == 1, "ss");
+
+  mon_printf("Single-stepping is %s\n",
+             guest_toggle_ss() ? "on" : "off");
+  return PICOL_OK;
+}
+
+PICOL_COMMAND(reg) {
+  PICOL_ARITY(argc == 1 || argc == 2);
+  int v;
+  uint32_t *r = NULL;
+
+  if (PICOL_EQ(argv[0], "ctr")) {
+    r = (uint32_t *) &guest->regs->ppcCTR;
+  } else if (PICOL_EQ(argv[0], "xer")) {
+    r = (uint32_t *) &guest->regs->ppcXER;
+  } else if (PICOL_EQ(argv[0], "cr")) {
+    r = (uint32_t *) &guest->regs->ppcCR;
+  } else if (PICOL_EQ(argv[0], "pc")) {
+    r = (uint32_t *) &guest->regs->ppcPC;
+  } else if (PICOL_EQ(argv[0], "lr")) {
+    r = (uint32_t *) &guest->regs->ppcLR;
+  } else if (PICOL_EQ(argv[0], "msr")) {
+    r = (uint32_t *) &guest->regs->ppcMSR;
+  } else if (argv[0][0] == 'r') {
+    PICOL_SCAN_INT(v, argv[0] + 1);
+    r = (uint32_t *) &guest->regs->ppcGPRs[v];
+  }
+
+  if (r != NULL) {
+    if (argc == 1) {
+      picolSetIntResult(interp, *r);
+    } else {
+      PICOL_SCAN_INT(v, argv[1]);
+      *r = v;
+    }
+
+    return PICOL_OK;
+  }
+
+  return PICOL_ERR;
 }
 
 static int
@@ -57,14 +106,21 @@ mon_fprintf(void *unused,
 }
 
 static void
+mon_prompt(void)
+{
+  mon_printf("(%s) ", activated ? "sync" : "async");
+  ibuf_index = 0;
+}
+
+static void
 mon_on_connect(socket_t *s)
 {
   const char *banner =
     "This is the PVP monitor console\r\n"
-    "-------------------------------\r\n\n" PROMPT;
+    "-------------------------------\r\n\n";
 
-  ibuf_index = 0;
-  socket_out(s, banner, strlen(banner));
+  mon_printf("%s", banner);
+  pend_prompt = true;
 }
 
 static void
@@ -90,6 +146,45 @@ mon_init(void)
   interp = picolCreateInterp();
   picolRegisterCmd(interp, "quit", picol_quit, &picol_err);
   picolRegisterCmd(interp, "cont", picol_cont, &picol_err);
+  picolRegisterCmd(interp, "ss", picol_ss, NULL);
+  picolRegisterCmd(interp, "r0", picol_reg, NULL);
+  picolRegisterCmd(interp, "r1", picol_reg, NULL);
+  picolRegisterCmd(interp, "r2", picol_reg, NULL);
+  picolRegisterCmd(interp, "r3", picol_reg, NULL);
+  picolRegisterCmd(interp, "r4", picol_reg, NULL);
+  picolRegisterCmd(interp, "r5", picol_reg, NULL);
+  picolRegisterCmd(interp, "r6", picol_reg, NULL);
+  picolRegisterCmd(interp, "r7", picol_reg, NULL);
+  picolRegisterCmd(interp, "r8", picol_reg, NULL);
+  picolRegisterCmd(interp, "r9", picol_reg, NULL);
+  picolRegisterCmd(interp, "r10", picol_reg, NULL);
+  picolRegisterCmd(interp, "r11", picol_reg, NULL);
+  picolRegisterCmd(interp, "r12", picol_reg, NULL);
+  picolRegisterCmd(interp, "r13", picol_reg, NULL);
+  picolRegisterCmd(interp, "r14", picol_reg, NULL);
+  picolRegisterCmd(interp, "r15", picol_reg, NULL);
+  picolRegisterCmd(interp, "r16", picol_reg, NULL);
+  picolRegisterCmd(interp, "r17", picol_reg, NULL);
+  picolRegisterCmd(interp, "r18", picol_reg, NULL);
+  picolRegisterCmd(interp, "r19", picol_reg, NULL);
+  picolRegisterCmd(interp, "r20", picol_reg, NULL);
+  picolRegisterCmd(interp, "r21", picol_reg, NULL);
+  picolRegisterCmd(interp, "r22", picol_reg, NULL);
+  picolRegisterCmd(interp, "r23", picol_reg, NULL);
+  picolRegisterCmd(interp, "r24", picol_reg, NULL);
+  picolRegisterCmd(interp, "r25", picol_reg, NULL);
+  picolRegisterCmd(interp, "r26", picol_reg, NULL);
+  picolRegisterCmd(interp, "r27", picol_reg, NULL);
+  picolRegisterCmd(interp, "r28", picol_reg, NULL);
+  picolRegisterCmd(interp, "r29", picol_reg, NULL);
+  picolRegisterCmd(interp, "r30", picol_reg, NULL);
+  picolRegisterCmd(interp, "r31", picol_reg, NULL);
+  picolRegisterCmd(interp, "ctr", picol_reg, NULL);
+  picolRegisterCmd(interp, "xer", picol_reg, NULL);
+  picolRegisterCmd(interp, "cr", picol_reg, NULL);
+  picolRegisterCmd(interp, "pc", picol_reg, NULL);
+  picolRegisterCmd(interp, "lr", picol_reg, NULL);
+  picolRegisterCmd(interp, "msr", picol_reg, NULL);
 
   s.port = PORT;
   s.on_connect = mon_on_connect;
@@ -105,21 +200,35 @@ err_t
 mon_activate(void)
 {
   err_t err;
+  bool was_connected = socket_connected(&s);
 
-  LOG("Waiting for monitor console connection on %u", PORT);
+  activated = true;
+  if (!was_connected) {
+    LOG("Waiting for monitor console connection on %u", PORT);
+  }
   while (socket_handle_connect(&s) != ERR_NONE);
-  LOG("Monitor console connected");
+
+  if (!pend_prompt) {
+    mon_printf("\n");
+    pend_prompt = true;
+  }
+
+  if (!was_connected) {
+    LOG("Monitor console connected");
+  }
 
   while (1) {
     err = mon_check();
 
     if (err == ERR_CONTINUE) {
-      return ERR_NONE;
+      err = ERR_NONE;
+      break;
     } else if (err != ERR_NONE) {
       break;
     }
   }
 
+  activated = false;
   return err;
 }
 
@@ -133,6 +242,11 @@ err_t
 mon_check(void)
 {
   char c;
+
+  if (pend_prompt) {
+    mon_prompt();
+    pend_prompt = false;
+  }
 
   if (socket_in(&s, &c, 1) == 0) {
     return ERR_NONE;
@@ -148,13 +262,14 @@ mon_check(void)
     ibuf[ibuf_index] = '\0';
     rc = picolEval(interp, ibuf);
     if (interp->result[0] != '\0' || rc != PICOL_OK) {
-      mon_fprintf(NULL, "[%d] %s\n", rc, interp->result);
+      mon_printf("[%d] %s\n", rc, interp->result);
     }
-    socket_out(&s, PROMPT, sizeof(PROMPT) - 1);
-    ibuf_index = 0;
+    pend_prompt = true;
 
     if (picol_err != ERR_NONE) {
-      return picol_err;
+      err_t r = picol_err;
+      picol_err = ERR_NONE;
+      return r;
     }
     return ERR_NONE;
   } else if (c == '\r') {

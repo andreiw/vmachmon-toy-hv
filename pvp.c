@@ -46,7 +46,6 @@ int
 main(int argc, char **argv)
 {
   kern_return_t kr;
-  vmm_return_code_t vmm_ret;
   unsigned long *return_params32;
   err_t err;
 
@@ -66,11 +65,7 @@ main(int argc, char **argv)
    
   LOG("Switching to guest virtual machine");
   while (1) {
-    err = mon_check();
-    if (err != ERR_NONE && err != ERR_CONTINUE) {
-      break;
-    }
-
+    vmm_return_code_t vmm_ret;
     vmm_ret = vmm_call(kVmmExecuteVM, guest->vmm_index);
     switch (vmm_ret) {
     case kVmmReturnNull:
@@ -103,8 +98,7 @@ main(int argc, char **argv)
     case kVmmReturnProgramException:
       goto unhandled;
     case kVmmReturnTraceException:
-      guest_dump();
-      continue;
+      goto unhandled;
     case kVmmAltivecAssist:
       goto unhandled;
     case kVmmInvalidAdSpace:
@@ -121,6 +115,11 @@ main(int argc, char **argv)
       break;
     default:
       goto unhandled;
+    }
+
+    err = mon_check();
+    if (err != ERR_NONE && err != ERR_CONTINUE) {
+      break;
     }
 
     continue;

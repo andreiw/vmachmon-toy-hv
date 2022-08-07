@@ -22,6 +22,7 @@ typedef struct guest_t {
   vmm_thread_index_t vmm_index;
   vmm_regs32_t *regs;
   mmu_state_t mmu_state;
+  vmm_return_code_t vmm_ret;
 } guest_t;
 
 extern guest_t *guest;
@@ -38,6 +39,7 @@ length_t guest_from_ex(void *dest, gea_t src, length_t bytes,
 err_t guest_to(gra_t dest, const void *src, length_t bytes,
                length_t access_size);
 void guest_dump();
+bool guest_toggle_ss(void);
 
 #define guest_to_x(dest, src) guest_to(dest, src, sizeof(*(src)), sizeof(*(src)))
 #define guest_from_x(dest, src) guest_from(dest, src, sizeof(*(dest)), sizeof(*(dest)))

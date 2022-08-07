@@ -93,6 +93,17 @@ guest_mmu_allow_ra(void)
   return guest->mmu_state != MMU_ON;
 }
 
+bool
+guest_toggle_ss(void)
+{
+  /*
+   * This logic becomes more complex when
+   * guest MSR access is emulated.
+   */
+  guest->regs->ppcMSR ^= MSR_SE;
+  return (guest->regs->ppcMSR & MSR_SE) != 0;
+}
+
 length_t
 guest_from_ex(void *dest,
               gea_t src,
