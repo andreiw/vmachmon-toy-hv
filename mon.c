@@ -101,13 +101,67 @@ PICOL_COMMAND(gra) {
   return picolErrFmt(interp, "%s", err_to_string(err));
 }
 
+PICOL_COMMAND(dump) {
+  PICOL_ARITY2(argc == 3, "d8/d16/d32 ea count");
+
+  gea_t ea;
+  count_t count;
+  err_t err = ERR_NONE;
+  char buf[PICOL_MAX_STR] = "";
+  char formatted[sizeof("0xyyyyxxxx")];
+
+  PICOL_SCAN_INT(ea, argv[1]);
+  PICOL_SCAN_INT(count, argv[2]);
+
+  while (count--) {
+    char t = argv[0][1];
+
+    if (t == '8') {
+      uint8_t v8;
+      err = guest_from_x(&v8, ea);
+      if (err != ERR_NONE) {
+        break;
+      }
+
+      ea += 1;
+      PICOL_SNPRINTF(formatted, sizeof(formatted), "0x%02x", v8);
+    } else if(t == '1') {
+      uint16_t v16;
+      err = guest_from_x(&v16, ea);
+      if (err != ERR_NONE) {
+        break;
+      }
+
+      ea += 2;
+      PICOL_SNPRINTF(formatted, sizeof(formatted), "0x%04x", v16);
+    } else {
+      uint32_t v;
+      err = guest_from_x(&v, ea);
+      if (err != ERR_NONE) {
+        break;
+      }
+
+      ea += 4;
+      PICOL_SNPRINTF(formatted, sizeof(formatted), "0x%08x", v);
+    }
+
+    PICOL_LAPPEND(buf, formatted);
+  }
+
+  if (err == ERR_NONE) {
+    return picolSetResult(interp, buf);
+  }
+
+  return picolErrFmt(interp, "%s", err_to_string(err));
+}
+
 static int
 mon_fprintf(void *unused,
             const char *fmt,
             ...)
 {
   int ret;
-  static char buf[1024];
+  static char buf[PICOL_MAX_STR];
   va_list ap;
 
   va_start(ap, fmt);
@@ -202,6 +256,9 @@ mon_init(void)
   picolRegisterCmd(interp, "lr", picol_reg, NULL);
   picolRegisterCmd(interp, "msr", picol_reg, NULL);
   picolRegisterCmd(interp, "gra", picol_gra, NULL);
+  picolRegisterCmd(interp, "d8", picol_dump, NULL);
+  picolRegisterCmd(interp, "d16", picol_dump, NULL);
+  picolRegisterCmd(interp, "d32", picol_dump, NULL);
 
   s.port = PORT;
   s.on_connect = mon_on_connect;
