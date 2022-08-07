@@ -18,21 +18,6 @@
 #define ANSI_SET(color)       ANSI_CSI "%um", (color)
 #define ANSI_RESET            ANSI_SET(ANSI_NORMAL)
 
-static const char *
-err_t_to_string(err_t code)
-{
-#define ERR_DEF(x, z) case x: { return z; } 
-
-  if (code > ERR_INVALID) {
-    code = ERR_INVALID;
-  }
-  switch(code) {
-  default:
-    ERR_LIST
-  }
-#undef ERR_DEF
-}
-
 /*
  * Print a log message.
  */
@@ -108,7 +93,7 @@ _log(unsigned level, unsigned log_lvl, unsigned error,
     } else if (level == LOG_FDT_ERROR) {
       s = fdt_strerror(error);
     } else if (level == LOG_ERROR) {
-      s = err_t_to_string(error);
+      s = err_to_string(error);
     }
     fprintf(f, "%s (0x%x): ", s, error);
   }

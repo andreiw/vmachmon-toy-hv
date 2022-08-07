@@ -9,5 +9,6 @@
 #include <sys/types.h>
 #include <mach/mach.h>
 #include "types.h"
+#include "err.h"
 #include "defs.h"
 #include "log.h"

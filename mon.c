@@ -85,6 +85,22 @@ PICOL_COMMAND(reg) {
   return PICOL_ERR;
 }
 
+PICOL_COMMAND(gra) {
+  PICOL_ARITY2(argc == 2, "gra ea");
+
+  gea_t ea;
+  gra_t ra;
+
+  PICOL_SCAN_INT(ea, argv[1]);
+  err_t err = guest_backmap(ea, &ra);
+  if (err == ERR_NONE) {
+    picolSetIntResult(interp, ra);
+    return PICOL_OK;
+  }
+
+  return picolErrFmt(interp, "%s", err_to_string(err));
+}
+
 static int
 mon_fprintf(void *unused,
             const char *fmt,
@@ -185,6 +201,7 @@ mon_init(void)
   picolRegisterCmd(interp, "pc", picol_reg, NULL);
   picolRegisterCmd(interp, "lr", picol_reg, NULL);
   picolRegisterCmd(interp, "msr", picol_reg, NULL);
+  picolRegisterCmd(interp, "gra", picol_gra, NULL);
 
   s.port = PORT;
   s.on_connect = mon_on_connect;
