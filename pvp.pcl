@@ -1,0 +1,25 @@
+proc in_cif {} {
+     if {[gra [pc]] != 0x8} {
+        puts "Doesn't look like we're in a CIF call"
+        return 0
+     }
+     return 1
+}
+
+proc cif_dump {} {
+     if {[in_cif] == 0} {
+        return
+     }
+     set cia [r3]
+     puts "In "[mr32 [expr $cia + 4] 1]\ out\ [mr32 [expr $cia + 8] 1]
+     puts "Service: "[mrs [mr32 [expr $cia + 0] 1]]\
+}
+
+proc cif_fail {} {
+     if {[in_cif] == 0} {
+        return
+     }
+     r3 -1
+     pc [lr]
+     cont
+}

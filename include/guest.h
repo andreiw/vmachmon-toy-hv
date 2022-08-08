@@ -38,7 +38,6 @@ length_t guest_from_ex(void *dest, gea_t src, length_t bytes,
                        length_t access_size, bool nul_term);
 err_t guest_to(gra_t dest, const void *src, length_t bytes,
                length_t access_size);
-void guest_dump();
 bool guest_toggle_ss(void);
 
 #define guest_to_x(dest, src) guest_to(dest, src, sizeof(*(src)), sizeof(*(src)))

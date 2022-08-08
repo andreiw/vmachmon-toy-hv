@@ -16,8 +16,9 @@ mon_fprintf(void *unused,
 #define mon_printf(fmt, ...) mon_fprintf(NULL,  fmt, ## __VA_ARGS__)
 #include "picol.h"
 
-#define PORT      7001
-#define IBUF_SIZE PAGE_SIZE
+#define SOURCE_FILE "pvp.pcl"
+#define PORT        7001
+#define IBUF_SIZE   PAGE_SIZE
 
 static socket_t s;
 static char *ibuf;
@@ -28,7 +29,7 @@ static bool activated;
 static bool pend_prompt;
 
 PICOL_COMMAND(quit) {
-  PICOL_ARITY2(argc == 1, "stop");
+  PICOL_ARITY2(argc == 1, "quit");
 
   *(err_t *)pd = ERR_SHUTDOWN;
   return PICOL_OK;
@@ -38,6 +39,13 @@ PICOL_COMMAND(cont) {
   PICOL_ARITY2(argc == 1, "cont");
 
   *(err_t *)pd = ERR_CONTINUE;
+  return PICOL_OK;
+}
+
+PICOL_COMMAND(pause) {
+  PICOL_ARITY2(argc == 1, "pause");
+
+  *(err_t *)pd = ERR_PAUSE;
   return PICOL_OK;
 }
 
@@ -101,22 +109,139 @@ PICOL_COMMAND(gra) {
   return picolErrFmt(interp, "%s", err_to_string(err));
 }
 
+PICOL_COMMAND(cpu) {
+  PICOL_ARITY(argc == 1);
+
+  int i, j;
+  uint32_t insn;
+  unsigned long *return_params32;
+
+  guest_from_x(&insn, guest->regs->ppcPC);
+
+  mon_printf("  PC                   = %p (%lu)\n",
+      (void *)guest->regs->ppcPC, guest->regs->ppcPC);
+  mon_printf("  Instruction at PC    = 0x%08x\n", insn);
+  mon_printf("  CR                   = 0x%08x\n", guest->regs->ppcCR);
+  mon_printf("  LR                   = 0x%08x (%lu)\n",
+      guest->regs->ppcLR, guest->regs->ppcLR);
+  mon_printf("  MSR                  = 0x%08x\n", guest->regs->ppcMSR);
+  mon_printf("  return_code          = 0x%08x (%s)\n",
+      guest->vmm->return_code, vmm_return_code_to_string(guest->vmm->return_code));
+
+  return_params32 = guest->vmm->vmmRet.vmmrp32.return_params;
+
+  for (i = 0; i < 4; i++)
+    mon_printf("  return_params32[%d]   = 0x%08lx (%lu)\n", i,
+        return_params32[i], return_params32[i]);
+
+  for (j = 0; j < 16; j++) {
+    mon_printf("r%-2d = 0x%08x r%-2d = 0x%08x\n",
+        j * 2, guest->regs->ppcGPRs[j * 2],
+        j * 2 + 1, guest->regs->ppcGPRs[j * 2 + 1]);
+  }
+
+  return PICOL_OK;
+}
+
 PICOL_COMMAND(dump) {
-  PICOL_ARITY2(argc == 3, "d8/d16/d32 ea count");
+  PICOL_ARITY2(argc == 3 || argc == 2, "d8/d16/d32 ea ?count");
+
+  gea_t ea;
+  size_t stride;
+  count_t done, each;
+  err_t err = ERR_NONE;
+  char t = argv[0][1];
+  count_t count = 16;
+
+  PICOL_SCAN_INT(ea, argv[1]);
+  if (argc == 3) {
+    PICOL_SCAN_INT(count, argv[2]);
+  }
+  done = 0;
+
+  if (count == 0) {
+    return PICOL_OK;
+  }
+
+  if (t == '8' || t == 'c') {
+    each = 16;
+    stride = 1;
+  } else if (t == '1') {
+    each = 8;
+    stride = 2;
+  } else {
+    each = 4;
+    stride = 4;
+  }
+
+  while (count--) {
+    if (done != 0 && (done % each) == 0) {
+      mon_printf("\n");
+    }
+
+    if (done % each == 0) {
+      mon_printf("0x%x: ", ea);
+    }
+
+    if (t == '8' || t == 'c') {
+      uint8_t v8;
+      err = guest_from_x(&v8, ea);
+      if (err != ERR_NONE) {
+        break;
+      }
+
+      if (t == '8') {
+        mon_printf("0x%02x ", v8);
+      } else {
+        mon_printf("'%c' ", isprint(v8) ? v8 : '.');
+      }
+    } else if(t == '1') {
+      uint16_t v16;
+      err = guest_from_x(&v16, ea);
+      if (err != ERR_NONE) {
+        break;
+      }
+
+      mon_printf("0x%04x ", v16);
+    } else {
+      uint32_t v;
+      err = guest_from_x(&v, ea);
+      if (err != ERR_NONE) {
+        break;
+      }
+
+      mon_printf("0x%08x ", v);
+    }
+
+    ea += stride;
+    done++;
+  }
+
+  mon_printf("\n");
+
+  if (err == ERR_NONE) {
+    picolSetResult(interp, "");
+    return PICOL_OK;
+  }
+
+  return picolErrFmt(interp, "%s", err_to_string(err));
+}
+
+PICOL_COMMAND(memread) {
+  PICOL_ARITY2(argc == 3, "mrc/mr8/mr6/mr32 ea");
 
   gea_t ea;
   count_t count;
   err_t err = ERR_NONE;
   char buf[PICOL_MAX_STR] = "";
   char formatted[sizeof("0xyyyyxxxx")];
+  char t = argv[0][2];
 
   PICOL_SCAN_INT(ea, argv[1]);
   PICOL_SCAN_INT(count, argv[2]);
 
   while (count--) {
-    char t = argv[0][1];
-
-    if (t == '8') {
+    if (t == '8' || t == 'c') {
       uint8_t v8;
       err = guest_from_x(&v8, ea);
       if (err != ERR_NONE) {
@@ -124,7 +249,8 @@ PICOL_COMMAND(dump) {
       }
 
       ea += 1;
-      PICOL_SNPRINTF(formatted, sizeof(formatted), "0x%02x", v8);
+      PICOL_SNPRINTF(formatted, sizeof(formatted),
+                     t == 'c' ? "%c" : "0x%02x", v8);
     } else if(t == '1') {
       uint16_t v16;
       err = guest_from_x(&v16, ea);
@@ -146,6 +272,36 @@ PICOL_COMMAND(dump) {
     }
 
     PICOL_LAPPEND(buf, formatted);
+  }
+
+  if (err == ERR_NONE) {
+    return picolSetResult(interp, buf);
+  }
+
+  return picolErrFmt(interp, "%s", err_to_string(err));
+}
+
+PICOL_COMMAND(memreadstring) {
+  PICOL_ARITY2(argc == 2, "mrs ea");
+
+  gea_t ea;
+  err_t err = ERR_NONE;
+  char buf[PICOL_MAX_STR] = "";
+
+  PICOL_SCAN_INT(ea, argv[1]);
+
+  while (1) {
+    char c;
+    err = guest_from_x(&c, ea);
+    if (err != ERR_NONE) {
+      break;
+    }
+
+    ea += 1;
+    if (c == '\0') {
+      break;
+    }
+    strncat(buf, &c, 1);
   }
 
   if (err == ERR_NONE) {
@@ -205,6 +361,7 @@ mon_on_disconnect(socket_t *s)
 err_t
 mon_init(void)
 {
+  int rc;
   err_t err;
 
   ibuf = malloc(IBUF_SIZE);
@@ -216,6 +373,7 @@ mon_init(void)
   interp = picolCreateInterp();
   picolRegisterCmd(interp, "quit", picol_quit, &picol_err);
   picolRegisterCmd(interp, "cont", picol_cont, &picol_err);
+  picolRegisterCmd(interp, "pause", picol_pause, &picol_err);
   picolRegisterCmd(interp, "ss", picol_ss, NULL);
   picolRegisterCmd(interp, "r0", picol_reg, NULL);
   picolRegisterCmd(interp, "r1", picol_reg, NULL);
@@ -256,9 +414,24 @@ mon_init(void)
   picolRegisterCmd(interp, "lr", picol_reg, NULL);
   picolRegisterCmd(interp, "msr", picol_reg, NULL);
   picolRegisterCmd(interp, "gra", picol_gra, NULL);
+  picolRegisterCmd(interp, "mr8", picol_memread, NULL);
+  picolRegisterCmd(interp, "mr16", picol_memread, NULL);
+  picolRegisterCmd(interp, "mr32", picol_memread, NULL);
+  picolRegisterCmd(interp, "mrc", picol_memread, NULL);
+  picolRegisterCmd(interp, "mrs", picol_memreadstring, NULL);
   picolRegisterCmd(interp, "d8", picol_dump, NULL);
+  picolRegisterCmd(interp, "dc", picol_dump, NULL);
   picolRegisterCmd(interp, "d16", picol_dump, NULL);
   picolRegisterCmd(interp, "d32", picol_dump, NULL);
+  picolRegisterCmd(interp, "cpu", picol_cpu, NULL);
+
+  rc = picolSource(interp, SOURCE_FILE);
+  if (rc != PICOL_OK) {
+    picolVar *v = picolGetVar(interp, "::errorInfo");
+    if (v != NULL) {
+      LOG("Sourcing '%s' failed: %s", SOURCE_FILE, v->val);
+    }
+  }
 
   s.port = PORT;
   s.on_connect = mon_on_connect;

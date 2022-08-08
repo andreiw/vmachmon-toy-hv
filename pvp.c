@@ -5,6 +5,8 @@
 #include "term.h"
 #include "mon.h"
 
+#define ENTER_MON_MSG "waiting for monitor"
+
 static bool cpu_little_endian = false;
 const char *fdt_path = "pvp.dtb";
 
@@ -119,13 +121,16 @@ main(int argc, char **argv)
 
     err = mon_check();
     if (err != ERR_NONE && err != ERR_CONTINUE) {
-      break;
+      goto unhandled;
     }
 
     continue;
   unhandled:
-    VMM_ERROR(vmm_ret, "Unhandled VMM exit");
-    guest_dump();
+    if (err != ERR_NONE) {
+      ERROR(err, ENTER_MON_MSG);
+    } else if (vmm_ret != kVmmReturnNull) {
+      VMM_ERROR(vmm_ret, ENTER_MON_MSG);
+    }
     if (mon_activate() != ERR_NONE) {
       break;
     }

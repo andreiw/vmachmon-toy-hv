@@ -195,39 +195,3 @@ guest_to(gea_t dest,
 
   return ERR_NONE;
 }
-
-void
-guest_dump(void)
-{
-  int i, j;
-  uint32_t insn;
-  unsigned long *return_params32;
-
-  LOG("Processor state:");
-  guest_from_x(&insn, guest->regs->ppcPC);
-
-  LOG("  PC                   = %p (%lu)",
-      (void *)guest->regs->ppcPC, guest->regs->ppcPC);
-  LOG("  Instruction at PC    = 0x%08x", insn);
-  LOG("  CR                   = 0x%08x"
-      "                         ", guest->regs->ppcCR);
-  LOG("  LR                   = 0x%08x (%lu)",
-      guest->regs->ppcLR, guest->regs->ppcLR);
-  LOG("  MSR                  = 0x%08x"
-      "                         ", guest->regs->ppcMSR);
-  LOG("  return_code          = 0x%08x (%s)",
-      guest->vmm->return_code, vmm_return_code_to_string(guest->vmm->return_code));
-
-  return_params32 = guest->vmm->vmmRet.vmmrp32.return_params;
-
-  for (i = 0; i < 4; i++)
-    LOG("  return_params32[%d]   = 0x%08lx (%lu)", i,
-        return_params32[i], return_params32[i]);
-
-  LOG("  GPRs:");
-  for (j = 0; j < 16; j++) {
-    LOG("r%-2d = 0x%08x r%-2d = 0x%08x",
-        j * 2, guest->regs->ppcGPRs[j * 2],
-        j * 2 + 1, guest->regs->ppcGPRs[j * 2 + 1]);
-  }
-}
