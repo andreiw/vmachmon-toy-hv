@@ -10,7 +10,7 @@
 	#address-cells = <1>;
 	#size-cells = <1>;
 
-	cpus: cpus {
+	cpus {
 		#cpus = <1>;
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -163,9 +163,5 @@
 	aliases {
 		mem = "/memory";
 		mmu = "/cpus/cpu";
-	};
-
-	__internal_refs {
-		refs = <&chosen &options &openprom &mem &cpus>;
 	};
 };

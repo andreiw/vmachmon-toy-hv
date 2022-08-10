@@ -18,10 +18,8 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
-#define ROOT_PHANDLE (0x10000000)
-#define IH_2_PH(x) (x)
-#define PH_2_IH(x) (x)
-
+#define PHANDLE_MUNGE 0x10000000
+#define ROOT_PHANDLE rom_get_phandle(0)
 #define CELL(x, i) (x + i * sizeof(cell_t))
 
 typedef uint32_t cell_t;
@@ -49,12 +47,14 @@ typedef struct {
 } cif_handler_t;
 
 static phandle_t
-rom_get_phandle(void *fdt, int node)
+rom_get_phandle(int node)
 {
-  if (node == 0) {
-    return ROOT_PHANDLE;
-  }
+  return node | PHANDLE_MUNGE;
+}
 
+static ihandle_t
+rom_get_ihandle(int node)
+{
   return fdt_get_phandle(fdt, node);
 }
 
@@ -66,17 +66,19 @@ rom_path_to_ihandle(const char *path)
     return -1;
   }
 
-  return PH_2_IH(rom_get_phandle(fdt, node));
+  return rom_get_ihandle(node);
 }
 
 static int
-rom_node_offset_by_phandle(void *fdt, phandle_t phandle)
+rom_node_offset_by_phandle(phandle_t phandle)
 {
-  if (phandle == ROOT_PHANDLE) {
-    return 0;
-  }
+  return phandle &= ~PHANDLE_MUNGE;
+}
 
-  return fdt_node_offset_by_phandle(fdt, phandle);
+static int
+rom_node_offset_by_ihandle(ihandle_t ihandle)
+{
+  return fdt_node_offset_by_phandle(fdt, ihandle);
 }
 
 static uint32_t
@@ -349,7 +351,7 @@ rom_init(const char *fdt_path)
 
   memory_node = fdt_path_offset(fdt, "mem");
   BUG_ON(memory_node == -1, "memory node missing from DT template");
-  memory_ihandle = PH_2_IH(rom_get_phandle(fdt, memory_node));
+  memory_ihandle = rom_get_ihandle(memory_node);
 
   mmu_ihandle = rom_path_to_ihandle("mmu");
   BUG_ON(mmu_ihandle == -1, "mmu node missing from DT template");
@@ -545,7 +547,7 @@ rom_getprop(gea_t cia,
 
   p[guest_from_ex(p, prop_ea, sizeof(xfer_buf), 1, true)] = '\0';
 
-  node = rom_node_offset_by_phandle(fdt, phandle);
+  node = rom_node_offset_by_phandle(phandle);
   if (node < 0) {
     err = ERR_NOT_FOUND;
     WARN("looking up '%s' in unknown phandle 0x%x",
@@ -586,7 +588,7 @@ rom_getproplen(gea_t cia,
 
   p[guest_from_ex(p, prop_ea, sizeof(xfer_buf), 1, true)] = '\0';
 
-  node = rom_node_offset_by_phandle(fdt, phandle);
+  node = rom_node_offset_by_phandle(phandle);
   if (node < 0) {
     err = ERR_NOT_FOUND;
     WARN("looking up unknown phandle 0x%x", phandle);
@@ -595,7 +597,9 @@ rom_getproplen(gea_t cia,
 
   err = rom_getprop_ex(node, p, 0,
                        NULL, &len_out);
-  ON_ERROR("rom_getprop_ex", err, done);
+  if (err != ERR_NONE) {
+    goto done;
+  }
 
   err = guest_to_x(CELL(cia, 5), &len_out);
   ON_ERROR("len_out", err, done);
@@ -620,7 +624,7 @@ rom_child(gea_t cia,
   err = guest_from_x(&ph, CELL(cia, 3));
   ON_ERROR("ph", err, done);
 
-  node = rom_node_offset_by_phandle(fdt, ph);
+  node = rom_node_offset_by_phandle(ph);
   if (node < 0) {
     WARN("looking up unknown phandle 0x%x", ph);
     goto done;
@@ -630,16 +634,10 @@ rom_child(gea_t cia,
   if (node < 0) {
     goto done;
   } else {
-    ph_child = rom_get_phandle(fdt, node);
-    if (ph_child == 0) {
-      WARN("missing phandle for child node 0x%x (%s)",
-           node, fdt_get_name(fdt, node, NULL));
-      goto done;
-    }
+    ph_child = rom_get_phandle(node);
   }
 
  done:
-  VERBOSE("phandle 0x%x is child to 0x%x", ph_child, ph);
   err = guest_to_x(CELL(cia, 4), &ph_child);
   ON_ERROR("out ph", err, done);
   return err;
@@ -662,14 +660,11 @@ rom_peer(gea_t cia,
   ON_ERROR("ph", err, done);
 
   if (ph == 0) {
-    /*
-     * root.
-     */
     ph_peer = ROOT_PHANDLE;
     goto done;
   }
 
-  node = rom_node_offset_by_phandle(fdt, ph);
+  node = rom_node_offset_by_phandle(ph);
   if (node < 0) {
     WARN("looking up unknown phandle 0x%x", ph);
     goto done;
@@ -679,16 +674,10 @@ rom_peer(gea_t cia,
   if (node < 0) {
     goto done;
   } else {
-    ph_peer = rom_get_phandle(fdt, node);
-    if (ph_peer == 0) {
-      WARN("missing phandle for sibling node 0x%x (%s)",
-           node, fdt_get_name(fdt, node, NULL));
-      goto done;
-    }
+    ph_peer = rom_get_phandle(node);
   }
 
  done:
-  VERBOSE("phandle 0x%x is peer to 0x%x", ph_peer, ph);
   err = guest_to_x(CELL(cia, 4), &ph_peer);
   ON_ERROR("out ph", err, done);
   return err;
@@ -712,7 +701,7 @@ rom_parent(gea_t cia,
     goto done;
   }
 
-  node = rom_node_offset_by_phandle(fdt, ph);
+  node = rom_node_offset_by_phandle(ph);
   if (node < 0) {
     WARN("looking up unknown phandle 0x%x", ph);
     goto done;
@@ -722,16 +711,10 @@ rom_parent(gea_t cia,
   if (node < 0) {
     goto done;
   } else {
-    ph_parent = rom_get_phandle(fdt, node);
-    if (ph_parent == 0) {
-      WARN("missing phandle for sibling node 0x%x (%s)",
-           node, fdt_get_name(fdt, node, NULL));
-      goto done;
-    }
+    ph_parent = rom_get_phandle(node);
   }
 
  done:
-  VERBOSE("phandle 0x%x is parent to 0x%x", ph_parent, ph);
   err = guest_to_x(CELL(cia, 4), &ph_parent);
   ON_ERROR("out ph", err, done);
   return err;
@@ -743,12 +726,21 @@ rom_itopackage(gea_t cia,
                count_t out)
 {
   err_t err;
+  int node;
   ihandle_t ih;
+  phandle_t ph;
 
   err = guest_from_x(&ih, CELL(cia, 3));
   ON_ERROR("ih", err, done);
 
-  err = guest_to_x(CELL(cia, 4), &ih);
+  node = rom_node_offset_by_ihandle(ih);
+  if (node < 0) {
+    ph = -1;
+  } else {
+    ph = rom_get_phandle(node);
+  }
+
+  err = guest_to_x(CELL(cia, 4), &ph);
   ON_ERROR("ph", err, done);
 
  done:
@@ -775,7 +767,7 @@ rom_finddevice(gea_t cia,
     WARN("dev '%s' not found", d);
     phandle = -1;
   } else {
-    phandle = rom_get_phandle(fdt, node);
+    phandle = rom_get_phandle(node);
   }
 
   err = guest_to_x(CELL(cia, 4), &phandle);
