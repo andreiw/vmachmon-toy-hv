@@ -43,7 +43,7 @@ static gra_t stack_end;
 static char xfer_buf[PAGE_SIZE];
 
 typedef struct {
-  err_t (*handler)(gea_t cia);
+  err_t (*handler)(gea_t cia, count_t in, count_t out);
   const char *name;
 } cif_handler_t;
 
@@ -113,7 +113,9 @@ rom_claim_ex(uint32_t addr,
 }
 
 err_t
-rom_milliseconds(gea_t cia)
+rom_milliseconds(gea_t cia,
+                 count_t in,
+                 count_t out)
 {
   err_t err;
   cell_t ms;
@@ -129,7 +131,9 @@ rom_milliseconds(gea_t cia)
 }
 
 err_t
-rom_claim(gea_t cia)
+rom_claim(gea_t cia,
+          count_t in_count,
+          count_t out_count)
 {
   err_t err;
   cell_t addr;
@@ -155,7 +159,9 @@ rom_claim(gea_t cia)
 }
 
 err_t
-rom_callmethod(gea_t cia)
+rom_callmethod(gea_t cia,
+               count_t in,
+               count_t out)
 {
   err_t err;
   gea_t method_ea;
@@ -511,7 +517,9 @@ rom_getprop_ex(int node,
 }
 
 static err_t
-rom_getprop(gea_t cia)
+rom_getprop(gea_t cia,
+            count_t in,
+            count_t out)
 {
   int node;
   err_t err;
@@ -554,7 +562,9 @@ rom_getprop(gea_t cia)
 }
 
 static err_t
-rom_getproplen(gea_t cia)
+rom_getproplen(gea_t cia,
+               count_t in,
+               count_t out)
 {
   int node;
   err_t err;
@@ -589,7 +599,9 @@ rom_getproplen(gea_t cia)
 }
 
 static err_t
-rom_finddevice(gea_t cia)
+rom_finddevice(gea_t cia,
+               count_t in,
+               count_t out)
 {
   int node;
   err_t err;
@@ -617,7 +629,9 @@ rom_finddevice(gea_t cia)
 }
 
 static err_t
-rom_read(gea_t cia)
+rom_read(gea_t cia,
+         count_t in,
+         count_t out)
 {
   err_t err;
   ihandle_t ihandle;
@@ -669,7 +683,9 @@ rom_read(gea_t cia)
 }
 
 static err_t
-rom_write(gea_t cia)
+rom_write(gea_t cia,
+          count_t in,
+          count_t out)
 {
   err_t err;
   ihandle_t ihandle;
@@ -715,7 +731,9 @@ rom_write(gea_t cia)
 }
 
 static err_t
-rom_shutdown(gea_t cia)
+rom_shutdown(gea_t cia,
+             count_t in,
+             count_t out)
 {
   return ERR_SHUTDOWN;
 }
@@ -771,7 +789,7 @@ rom_call(void)
 
   for (i = 0; i < ARRAY_LEN(handlers); i++) {
     if (!strcmp(service, handlers[i].name)) {
-      err = handlers[i].handler(cia);
+      err = handlers[i].handler(cia, in_count, out_count);
       break;
     }
   }
