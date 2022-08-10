@@ -547,7 +547,9 @@ rom_getprop(gea_t cia,
   node = rom_node_offset_by_phandle(fdt, phandle);
   if (node < 0) {
     err = ERR_NOT_FOUND;
-    ON_ERROR("rom_node_offset_by_phandle", err, done);
+    WARN("looking up '%s' in unknown phandle 0x%x",
+         p, phandle);
+    goto done;
   }
 
   err = rom_getprop_ex(node, p, len_in,
@@ -593,6 +595,24 @@ rom_getproplen(gea_t cia,
 
   err = guest_to_x(CELL(cia, 5), &len_out);
   ON_ERROR("len_out", err, done);
+
+ done:
+  return err;
+}
+
+static err_t
+rom_itopackage(gea_t cia,
+               count_t in,
+               count_t out)
+{
+  err_t err;
+  ihandle_t ih;
+
+  err = guest_from_x(&ih, CELL(cia, 3));
+  ON_ERROR("ih", err, done);
+
+  err = guest_to_x(CELL(cia, 4), &ih);
+  ON_ERROR("ph", err, done);
 
  done:
   return err;
@@ -739,6 +759,7 @@ rom_shutdown(gea_t cia,
 }
 
 cif_handler_t handlers[] = {
+  { rom_itopackage, "instance-to-package" },
   { rom_finddevice, "finddevice" },
   { rom_getprop, "getprop" },
   { rom_getproplen, "getproplen" },
