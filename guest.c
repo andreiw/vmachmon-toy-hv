@@ -73,6 +73,13 @@ guest_backmap(gea_t ea, gra_t *gra)
   ha_t ha_base;
   gea_t offset = ea & PAGE_MASK;
 
+  if (guest_mmu_allow_ra()) {
+    if (pmem_gra_valid(ea)) {
+      *gra = ea;
+      return ERR_NONE;
+    }
+  }
+
   ha_base = vmm_call(kVmmGetPageMapping, guest->vmm_index, ea);
   if (ha_base == (ha_t) -1) {
     return ERR_NOT_FOUND;
