@@ -754,6 +754,56 @@ rom_parent(gea_t cia,
 }
 
 static err_t
+rom_itopath(gea_t cia,
+            count_t in,
+            count_t out)
+{
+  err_t err;
+  int node;
+  ihandle_t ih;
+  gea_t buf_ea;
+  cell_t buf_len;
+  cell_t result;
+
+  err = guest_from_x(&ih, CIA_ARG(0));
+  ON_ERROR("ih", err, access_fail);
+
+  err = guest_from_x(&buf_ea, CIA_ARG(1));
+  ON_ERROR("buf_ea", err, access_fail);
+
+  err = guest_from_x(&buf_len, CIA_ARG(2));
+  ON_ERROR("buf_len", err, access_fail);
+
+  node = rom_node_offset_by_ihandle(ih);
+  if (node < 0) {
+    result = -1;
+    goto done;
+  }
+
+  if (fdt_get_path(fdt, node, (char *) xfer_buf,
+                   sizeof(xfer_buf)) < 0) {
+    WARN("could not get path for valid ihandle 0x%x", ih);
+    result = -1;
+    goto done;
+  }
+
+  result = strlen((char *)xfer_buf);
+  if (buf_len != 0) {
+    buf_len = min(buf_len, result + 1);
+    err = guest_to(buf_ea, xfer_buf, buf_len, 1);
+    ON_ERROR("buf", err, access_fail);
+  }
+
+ done:
+  err = guest_to_x(CIA_ARG(3), &result);
+  ON_ERROR("result", err, access_fail);
+  return ERR_NONE;
+
+ access_fail:
+  return err;
+}
+
+static err_t
 rom_itopackage(gea_t cia,
                count_t in,
                count_t out)
@@ -949,6 +999,7 @@ cif_handler_t handlers[] = {
   { rom_peer, "peer" },
   { rom_parent, "parent" },
   { rom_itopackage, "instance-to-package" },
+  { rom_itopath, "instance-to-path" },
   { rom_finddevice, "finddevice" },
   { rom_getprop, "getprop" },
   { rom_getproplen, "getproplen" },
