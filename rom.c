@@ -21,7 +21,10 @@
 #define PHANDLE_MUNGE 0x10000000
 #define ROOT_PHANDLE rom_get_phandle(0)
 #define CELL(x, i) (x + i * sizeof(cell_t))
-#define CIA_ARG(x) (3 + x)
+#define CIA_SERVICE CELL(cia, 0)
+#define CIA_IN      CELL(cia, 1)
+#define CIA_OUT     CELL(cia ,2)
+#define CIA_ARG(x)  CELL(cia, (3 + x))
 
 typedef uint32_t cell_t;
 typedef cell_t phandle_t;
@@ -127,7 +130,7 @@ rom_milliseconds(gea_t cia,
   gettimeofday(&te, NULL);
 
   ms = te.tv_sec * 1000 + te.tv_usec / 1000;
-  err = guest_to_x(CELL(cia, 3), &ms);
+  err = guest_to_x(CIA_ARG(0), &ms);
   ON_ERROR("out", err, done);
 
  done:
@@ -145,18 +148,18 @@ rom_claim(gea_t cia,
   cell_t align;
   cell_t out;
 
-  err = guest_from_x(&addr, CELL(cia, 3));
+  err = guest_from_x(&addr, CIA_ARG(0));
   ON_ERROR("addr", err, done);
 
-  err = guest_from_x(&size, CELL(cia, 4));
+  err = guest_from_x(&size, CIA_ARG(1));
   ON_ERROR("size", err, done);
 
-  err = guest_from_x(&align, CELL(cia, 5));
+  err = guest_from_x(&align, CIA_ARG(2));
   ON_ERROR("align", err, done);
 
   out = rom_claim_ex(addr, size, align);
 
-  err = guest_to_x(CELL(cia, 6), &out);
+  err = guest_to_x(CIA_ARG(3), &out);
   ON_ERROR("out", err, done);
  done:
   return err;
@@ -178,18 +181,18 @@ rom_mem_call(gea_t cia,
     return ERR_UNSUPPORTED;
   }
 
-  err = guest_from_x(&align, CELL(cia, 5));
+  err = guest_from_x(&align, CIA_ARG(2));
   ON_ERROR("mclaim align", err, done);
 
-  err = guest_from_x(&size, CELL(cia, 6));
+  err = guest_from_x(&size, CIA_ARG(3));
   ON_ERROR("mclaim size", err, done);
 
-  err = guest_from_x(&addr, CELL(cia, 7));
+  err = guest_from_x(&addr, CIA_ARG(4));
   ON_ERROR("mclaim addr", err, done);
 
   result = rom_claim_ex(addr, size, align);
 
-  err = guest_to_x(CELL(cia, 3 + in + out - 1), &result);
+  err = guest_to_x(CIA_ARG(in + out - 1), &result);
   ON_ERROR("mclaim result", err, done);
 
  done:
@@ -213,16 +216,16 @@ rom_mmu_call(gea_t cia,
     return ERR_UNSUPPORTED;
   }
 
-  err = guest_from_x(&mode, CELL(cia, 5));
+  err = guest_from_x(&mode, CIA_ARG(2));
   ON_ERROR("mmap mode", err, done);
 
-  err = guest_from_x(&size, CELL(cia, 6));
+  err = guest_from_x(&size, CIA_ARG(3));
   ON_ERROR("mmap size", err, done);
 
-  err = guest_from_x(&virt, CELL(cia, 7));
+  err = guest_from_x(&virt, CIA_ARG(4));
   ON_ERROR("mmap virt", err, done);
 
-  err = guest_from_x(&phys, CELL(cia, 8));
+  err = guest_from_x(&phys, CIA_ARG(5));
   ON_ERROR("mmap phys", err, done);
 
   if (mode != -1) {
@@ -265,10 +268,10 @@ rom_callmethod(gea_t cia,
   char *call;
   cell_t result;
 
-  err = guest_from_x(&method_ea, CELL(cia, 3));
+  err = guest_from_x(&method_ea, CIA_ARG(0));
   ON_ERROR("method ea", err, done);
 
-  err = guest_from_x(&ihandle, CELL(cia, 4));
+  err = guest_from_x(&ihandle, CIA_ARG(1));
   ON_ERROR("ihandle", err, done);
 
   call = xfer_buf;
@@ -286,7 +289,7 @@ rom_callmethod(gea_t cia,
    * outer (call-method) result.
    */
   result = err == ERR_NONE ? 0 : -1;
-  err = guest_to_x(CELL(cia, in + 3), &result);
+  err = guest_to_x(CIA_ARG(in), &result);
  done:
   return err;
 }
@@ -563,16 +566,16 @@ rom_getprop(gea_t cia,
   cell_t len_out;
   char *p = xfer_buf;
 
-  err = guest_from_x(&phandle, CELL(cia, 3));
+  err = guest_from_x(&phandle, CIA_ARG(0));
   ON_ERROR("phandle", err, done);
 
-  err = guest_from_x(&prop_ea, CELL(cia, 4));
+  err = guest_from_x(&prop_ea, CIA_ARG(1));
   ON_ERROR("prop ea", err, done);
 
-  err = guest_from_x(&data_ea, CELL(cia, 5));
+  err = guest_from_x(&data_ea, CIA_ARG(2));
   ON_ERROR("data ea", err, done);
 
-  err = guest_from_x(&len_in, CELL(cia, 6));
+  err = guest_from_x(&len_in, CIA_ARG(3));
   ON_ERROR("len in", err, done);
 
   p[guest_from_ex(p, prop_ea, sizeof(xfer_buf), 1, true)] = '\0';
@@ -591,7 +594,7 @@ rom_getprop(gea_t cia,
     goto done;
   }
 
-  err = guest_to_x(CELL(cia, 7), &len_out);
+  err = guest_to_x(CIA_ARG(4), &len_out);
   ON_ERROR("len_out", err, done);
 
  done:
@@ -610,10 +613,10 @@ rom_getproplen(gea_t cia,
   cell_t len_out;
   char *p = xfer_buf;
 
-  err = guest_from_x(&phandle, CELL(cia, 3));
+  err = guest_from_x(&phandle, CIA_ARG(0));
   ON_ERROR("phandle", err, done);
 
-  err = guest_from_x(&prop_ea, CELL(cia, 4));
+  err = guest_from_x(&prop_ea, CIA_ARG(1));
   ON_ERROR("prop ea", err, done);
 
   p[guest_from_ex(p, prop_ea, sizeof(xfer_buf), 1, true)] = '\0';
@@ -631,7 +634,7 @@ rom_getproplen(gea_t cia,
     goto done;
   }
 
-  err = guest_to_x(CELL(cia, 5), &len_out);
+  err = guest_to_x(CIA_ARG(2), &len_out);
   ON_ERROR("len_out", err, done);
 
  done:
@@ -651,7 +654,7 @@ rom_child(gea_t cia,
    */
   phandle_t ph_child = 0;
 
-  err = guest_from_x(&ph, CELL(cia, 3));
+  err = guest_from_x(&ph, CIA_ARG(0));
   ON_ERROR("ph", err, done);
 
   node = rom_node_offset_by_phandle(ph);
@@ -668,7 +671,7 @@ rom_child(gea_t cia,
   }
 
  done:
-  err = guest_to_x(CELL(cia, 4), &ph_child);
+  err = guest_to_x(CIA_ARG(1), &ph_child);
   ON_ERROR("out ph", err, done);
   return err;
 }
@@ -686,7 +689,7 @@ rom_peer(gea_t cia,
    */
   phandle_t ph_peer = 0;
 
-  err = guest_from_x(&ph, CELL(cia, 3));
+  err = guest_from_x(&ph, CIA_ARG(0));
   ON_ERROR("ph", err, done);
 
   if (ph == 0) {
@@ -708,7 +711,7 @@ rom_peer(gea_t cia,
   }
 
  done:
-  err = guest_to_x(CELL(cia, 4), &ph_peer);
+  err = guest_to_x(CIA_ARG(1), &ph_peer);
   ON_ERROR("out ph", err, done);
   return err;
 }
@@ -723,7 +726,7 @@ rom_parent(gea_t cia,
   phandle_t ph;
   phandle_t ph_parent;
 
-  err = guest_from_x(&ph, CELL(cia, 3));
+  err = guest_from_x(&ph, CIA_ARG(0));
   ON_ERROR("ph", err, done);
 
   if (ph == ROOT_PHANDLE) {
@@ -745,7 +748,7 @@ rom_parent(gea_t cia,
   }
 
  done:
-  err = guest_to_x(CELL(cia, 4), &ph_parent);
+  err = guest_to_x(CIA_ARG(1), &ph_parent);
   ON_ERROR("out ph", err, done);
   return err;
 }
@@ -760,7 +763,7 @@ rom_itopackage(gea_t cia,
   ihandle_t ih;
   phandle_t ph;
 
-  err = guest_from_x(&ih, CELL(cia, 3));
+  err = guest_from_x(&ih, CIA_ARG(0));
   ON_ERROR("ih", err, done);
 
   node = rom_node_offset_by_ihandle(ih);
@@ -770,7 +773,7 @@ rom_itopackage(gea_t cia,
     ph = rom_get_phandle(node);
   }
 
-  err = guest_to_x(CELL(cia, 4), &ph);
+  err = guest_to_x(CIA_ARG(1), &ph);
   ON_ERROR("ph", err, done);
 
  done:
@@ -788,7 +791,7 @@ rom_finddevice(gea_t cia,
   char *d = xfer_buf;
   phandle_t phandle;
 
-  err = guest_from_x(&dev_ea, CELL(cia, 3));
+  err = guest_from_x(&dev_ea, CIA_ARG(0));
   ON_ERROR("dev ea", err, done);
 
   d[guest_from_ex(d, dev_ea, sizeof(xfer_buf), 1, true)] = '\0';
@@ -800,7 +803,7 @@ rom_finddevice(gea_t cia,
     phandle = rom_get_phandle(node);
   }
 
-  err = guest_to_x(CELL(cia, 4), &phandle);
+  err = guest_to_x(CIA_ARG(1), &phandle);
   ON_ERROR("phandle", err, done);
 
  done:
@@ -818,13 +821,13 @@ rom_read(gea_t cia,
   cell_t len_in;
   cell_t len_out;
 
-  err = guest_from_x(&ihandle, CELL(cia, 3));
+  err = guest_from_x(&ihandle, CIA_ARG(0));
   ON_ERROR("ihandle", err, done);
 
-  err = guest_from_x(&data_ea, CELL(cia, 4));
+  err = guest_from_x(&data_ea, CIA_ARG(1));
   ON_ERROR("data ea", err, done);
 
-  err = guest_from_x(&len_in, CELL(cia, 5));
+  err = guest_from_x(&len_in, CIA_ARG(2));
   ON_ERROR("data ea", err, done);
   len_out = len_in;
 
@@ -853,7 +856,7 @@ rom_read(gea_t cia,
 
   if (err == ERR_NONE) {
     len_out -= len_in;
-    err = guest_to_x(CELL(cia, 6), &len_out);
+    err = guest_to_x(CIA_ARG(3), &len_out);
     ON_ERROR("len_out", err, done);
   }
 
@@ -872,13 +875,13 @@ rom_write(gea_t cia,
   cell_t len_in;
   cell_t len_out;
 
-  err = guest_from_x(&ihandle, CELL(cia, 3));
+  err = guest_from_x(&ihandle, CIA_ARG(0));
   ON_ERROR("ihandle", err, done);
 
-  err = guest_from_x(&data_ea, CELL(cia, 4));
+  err = guest_from_x(&data_ea, CIA_ARG(1));
   ON_ERROR("data ea", err, done);
 
-  err = guest_from_x(&len_in, CELL(cia, 5));
+  err = guest_from_x(&len_in, CIA_ARG(2));
   ON_ERROR("data ea", err, done);
 
   len_out = len_in;
@@ -901,7 +904,7 @@ rom_write(gea_t cia,
 
   if (err == ERR_NONE) {
     len_out -= len_in;
-    err = guest_to_x(CELL(cia, 6), &len_out);
+    err = guest_to_x(CIA_ARG(3), &len_out);
     ON_ERROR("len_out", err, done);
   }
 
@@ -959,13 +962,13 @@ rom_call(void)
   }
 
   cia = r->ppcGPRs[3];
-  err = guest_from_x(&service_ea, CELL(cia, 0));
+  err = guest_from_x(&service_ea, CIA_SERVICE);
   ON_ERROR("service ea", err, done);
 
-  err = guest_from_x(&in_count, CELL(cia, 1));
+  err = guest_from_x(&in_count, CIA_IN);
   ON_ERROR("in count", err, done);
 
-  err = guest_from_x(&out_count, CELL(cia, 2));
+  err = guest_from_x(&out_count, CIA_OUT);
   ON_ERROR("out count", err, done);
 
   service[guest_from_ex(&service, service_ea, sizeof(service) - 1, 1, true)] = '\0';
