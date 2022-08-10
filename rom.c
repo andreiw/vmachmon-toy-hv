@@ -184,7 +184,7 @@ rom_callmethod(gea_t cia,
   if (ihandle == memory_ihandle && !strcmp("claim", call)) {
     cell_t align;
     cell_t size;
-    cell_t addr;
+    gra_t addr;
     cell_t result;
 
     err = guest_from_x(&align, CELL(cia, 5));
@@ -205,8 +205,8 @@ rom_callmethod(gea_t cia,
     err = guest_to_x(CELL(cia, 8), &result);
     ON_ERROR("mclaim outer result", err, done);
   } else if (ihandle == mmu_ihandle && !strcmp("map", call)) {
-    cell_t phys;
-    cell_t virt;
+    gra_t phys;
+    gea_t virt;
     cell_t size;
     cell_t mode;
     cell_t result;
@@ -953,7 +953,7 @@ rom_call(void)
     return ERR_UNSUPPORTED;
   }
 
-  if (err == ERR_SHUTDOWN) {
+  if (err == ERR_SHUTDOWN || err == ERR_PAUSE) {
     return err;
   }
 
