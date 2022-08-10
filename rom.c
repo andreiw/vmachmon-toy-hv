@@ -43,7 +43,7 @@ static gra_t claim_arena_end;
 static gra_t stack_start;
 static gra_t stack_end;
 
-static char xfer_buf[PAGE_SIZE];
+static uint8_t xfer_buf[PAGE_SIZE];
 
 typedef struct {
   err_t (*handler)(gea_t cia, count_t in, count_t out);
@@ -274,7 +274,7 @@ rom_callmethod(gea_t cia,
   err = guest_from_x(&ihandle, CIA_ARG(1));
   ON_ERROR("ihandle", err, done);
 
-  call = xfer_buf;
+  call = (char *) xfer_buf;
   call[guest_from_ex(call, method_ea, sizeof(xfer_buf) - 1, 1, true)] = '\0';
 
   if (ihandle == memory_ihandle) {
@@ -564,7 +564,7 @@ rom_getprop(gea_t cia,
   gea_t data_ea;
   cell_t len_in;
   cell_t len_out;
-  char *p = xfer_buf;
+  char *p = (char *) xfer_buf;
 
   err = guest_from_x(&phandle, CIA_ARG(0));
   ON_ERROR("phandle", err, done);
@@ -611,7 +611,7 @@ rom_getproplen(gea_t cia,
   phandle_t phandle;
   gea_t prop_ea;
   cell_t len_out;
-  char *p = xfer_buf;
+  char *p = (char *) xfer_buf;
 
   err = guest_from_x(&phandle, CIA_ARG(0));
   ON_ERROR("phandle", err, done);
@@ -788,8 +788,8 @@ rom_finddevice(gea_t cia,
   int node;
   err_t err;
   gea_t dev_ea;
-  char *d = xfer_buf;
   phandle_t phandle;
+  char *d = (char *) xfer_buf;
 
   err = guest_from_x(&dev_ea, CIA_ARG(0));
   ON_ERROR("dev ea", err, done);
@@ -835,7 +835,7 @@ rom_read(gea_t cia,
     length_t xferred;
     length_t xfer = min(len_in, sizeof(xfer_buf));
 
-    xferred = term_in(xfer_buf, xfer);
+    xferred = term_in((char *) xfer_buf, xfer);
 
     err = guest_to(data_ea, xfer_buf, xferred, 1);
     ON_ERROR("data", err, partial);
@@ -862,6 +862,30 @@ rom_read(gea_t cia,
 
  done:
   return err;
+}
+
+static void
+rom_stdout_write(const uint8_t *s,
+                 uint32_t len)
+{
+  while (len--) {
+    if (*s == 0x9b) {
+      term_out("\33[", 2);
+    } else if (*s == 0xcd) {
+      term_out("=", 1);
+    } else if (*s == 0xba) {
+      term_out("|", 1);
+    } else if (*s == 0xbb ||
+               *s == 0xc8) {
+      term_out("\\", 1);
+    } else if (*s == 0xbc ||
+               *s == 0xc9) {
+      term_out("/", 1);
+    } else {
+      term_out((const char *) s, 1);
+    }
+    s++;
+  }
 }
 
 static err_t
@@ -891,7 +915,7 @@ rom_write(gea_t cia,
     err = guest_from(xfer_buf, data_ea, xfer, 1);
     ON_ERROR("data", err, partial);
 
-    term_out(xfer_buf, xfer);
+    rom_stdout_write(xfer_buf, xfer);
 
     len_in -= xfer;
     data_ea += xfer;
