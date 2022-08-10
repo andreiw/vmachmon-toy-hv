@@ -21,6 +21,7 @@
 #define PHANDLE_MUNGE 0x10000000
 #define ROOT_PHANDLE rom_get_phandle(0)
 #define CELL(x, i) (x + i * sizeof(cell_t))
+#define CIA_ARG(x) (3 + x)
 
 typedef uint32_t cell_t;
 typedef cell_t phandle_t;
@@ -162,6 +163,98 @@ rom_claim(gea_t cia,
 }
 
 err_t
+rom_mem_call(gea_t cia,
+             const char *call,
+             count_t in,
+             count_t out)
+{
+  err_t err;
+  cell_t align;
+  cell_t size;
+  gra_t addr;
+  cell_t result;
+
+  if (strcmp("claim", call)) {
+    return ERR_UNSUPPORTED;
+  }
+
+  err = guest_from_x(&align, CELL(cia, 5));
+  ON_ERROR("mclaim align", err, done);
+
+  err = guest_from_x(&size, CELL(cia, 6));
+  ON_ERROR("mclaim size", err, done);
+
+  err = guest_from_x(&addr, CELL(cia, 7));
+  ON_ERROR("mclaim addr", err, done);
+
+  result = rom_claim_ex(addr, size, align);
+
+  err = guest_to_x(CELL(cia, 3 + in + out - 1), &result);
+  ON_ERROR("mclaim result", err, done);
+
+ done:
+  return err;
+}
+
+err_t
+rom_mmu_call(gea_t cia,
+             const char *call,
+             count_t in,
+             count_t out)
+{
+  err_t err;
+  gra_t phys;
+  gea_t virt;
+  cell_t size;
+  cell_t mode;
+  ha_t ha;
+
+  if (strcmp("map", call)) {
+    return ERR_UNSUPPORTED;
+  }
+
+  err = guest_from_x(&mode, CELL(cia, 5));
+  ON_ERROR("mmap mode", err, done);
+
+  err = guest_from_x(&size, CELL(cia, 6));
+  ON_ERROR("mmap size", err, done);
+
+  err = guest_from_x(&virt, CELL(cia, 7));
+  ON_ERROR("mmap virt", err, done);
+
+  err = guest_from_x(&phys, CELL(cia, 8));
+  ON_ERROR("mmap phys", err, done);
+
+  if (mode != -1) {
+    WARN("mmu map phys 0x%x virt 0x%x size 0x%x mode 0x%x",
+         phys, virt, size, mode);
+  }
+
+  if (phys == virt) {
+    return ERR_NONE;
+  }
+
+  if (!pmem_gra_valid(phys)) {
+    return ERR_BAD_ACCESS;
+  }
+
+  ha = pmem_ha(phys);
+  while (size != 0) {
+    err = guest_map(ha, virt);
+    if (err != ERR_NONE) {
+      break;
+    }
+
+    ha += PAGE_SIZE;
+    virt += PAGE_SIZE;
+    size -= PAGE_SIZE;
+  }
+
+ done:
+  return err;
+}
+
+err_t
 rom_callmethod(gea_t cia,
                count_t in,
                count_t out)
@@ -170,6 +263,7 @@ rom_callmethod(gea_t cia,
   gea_t method_ea;
   ihandle_t ihandle;
   char *call;
+  cell_t result;
 
   err = guest_from_x(&method_ea, CELL(cia, 3));
   ON_ERROR("method ea", err, done);
@@ -180,83 +274,19 @@ rom_callmethod(gea_t cia,
   call = xfer_buf;
   call[guest_from_ex(call, method_ea, sizeof(xfer_buf) - 1, 1, true)] = '\0';
 
-  err = ERR_UNSUPPORTED;
-  if (ihandle == memory_ihandle && !strcmp("claim", call)) {
-    cell_t align;
-    cell_t size;
-    gra_t addr;
-    cell_t result;
-
-    err = guest_from_x(&align, CELL(cia, 5));
-    ON_ERROR("mclaim align", err, done);
-
-    err = guest_from_x(&size, CELL(cia, 6));
-    ON_ERROR("mclaim size", err, done);
-
-    err = guest_from_x(&addr, CELL(cia, 7));
-    ON_ERROR("mclaim addr", err, done);
-
-    result = rom_claim_ex(addr, size, align);
-
-    err = guest_to_x(CELL(cia, 9), &result);
-    ON_ERROR("mclaim result", err, done);
-
-    result = 0;
-    err = guest_to_x(CELL(cia, 8), &result);
-    ON_ERROR("mclaim outer result", err, done);
-  } else if (ihandle == mmu_ihandle && !strcmp("map", call)) {
-    gra_t phys;
-    gea_t virt;
-    cell_t size;
-    cell_t mode;
-    cell_t result;
-
-    err = guest_from_x(&mode, CELL(cia, 5));
-    ON_ERROR("mmap mode", err, done);
-
-    err = guest_from_x(&size, CELL(cia, 6));
-    ON_ERROR("mmap size", err, done);
-
-    err = guest_from_x(&virt, CELL(cia, 7));
-    ON_ERROR("mmap virt", err, done);
-
-    err = guest_from_x(&phys, CELL(cia, 8));
-    ON_ERROR("mmap phys", err, done);
-
-    if (mode != -1) {
-      WARN("mmu map phys 0x%x virt 0x%x size 0x%x mode 0x%x",
-           phys, virt, size, mode);
-    }
-
-    result = 0;
-    if (phys != virt) {
-      if (pmem_gra_valid(phys)) {
-        ha_t ha;
-        ha = pmem_ha(phys);
-
-        while (size != 0) {
-          err = guest_map(ha, virt);
-          if (err != ERR_NONE) {
-            result = -0;
-            break;
-          }
-
-          ha += PAGE_SIZE;
-          virt += PAGE_SIZE;
-          size -= PAGE_SIZE;
-        }
-      } else {
-        result = -1;
-      }
-    }
-
-    err = guest_to_x(CELL(cia, 9), &result);
-    ON_ERROR("mmap outer result", err, done);
+  if (ihandle == memory_ihandle) {
+    err = rom_mem_call(cia, call, in, out);
+  } else if (ihandle == mmu_ihandle) {
+    err = rom_mmu_call(cia, call, in, out);
   } else {
-    ERROR(err, "Unknown method '%s' on ihandle 0x%x",
-          call, ihandle);
+    err = ERR_UNSUPPORTED;
   }
 
+  /*
+   * outer (call-method) result.
+   */
+  result = err == ERR_NONE ? 0 : -1;
+  err = guest_to_x(CELL(cia, in + 3), &result);
  done:
   return err;
 }
