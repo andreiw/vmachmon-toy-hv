@@ -18,6 +18,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
+#define ROOT_PHANDLE (0x10000000)
 #define IH_2_PH(x) (x)
 #define PH_2_IH(x) (x)
 
@@ -51,7 +52,7 @@ static phandle_t
 rom_get_phandle(void *fdt, int node)
 {
   if (node == 0) {
-    return 0;
+    return ROOT_PHANDLE;
   }
 
   return fdt_get_phandle(fdt, node);
@@ -71,7 +72,7 @@ rom_path_to_ihandle(const char *path)
 static int
 rom_node_offset_by_phandle(void *fdt, phandle_t phandle)
 {
-  if (phandle == 0) {
+  if (phandle == ROOT_PHANDLE) {
     return 0;
   }
 
@@ -554,7 +555,9 @@ rom_getprop(gea_t cia,
 
   err = rom_getprop_ex(node, p, len_in,
                        &data_ea, &len_out);
-  ON_ERROR("rom_getprop_ex", err, done);
+  if (err != ERR_NONE) {
+    goto done;
+  }
 
   err = guest_to_x(CELL(cia, 7), &len_out);
   ON_ERROR("len_out", err, done);
@@ -586,7 +589,8 @@ rom_getproplen(gea_t cia,
   node = rom_node_offset_by_phandle(fdt, phandle);
   if (node < 0) {
     err = ERR_NOT_FOUND;
-    ON_ERROR("rom_node_offset_by_phandle", err, done);
+    WARN("looking up unknown phandle 0x%x", phandle);
+    goto done;
   }
 
   err = rom_getprop_ex(node, p, 0,
@@ -597,6 +601,139 @@ rom_getproplen(gea_t cia,
   ON_ERROR("len_out", err, done);
 
  done:
+  return err;
+}
+
+static err_t
+rom_child(gea_t cia,
+          count_t in,
+          count_t out)
+{
+  int node;
+  err_t err;
+  phandle_t ph;
+  /*
+   * 'child' always returns 0 on failure.
+   */
+  phandle_t ph_child = 0;
+
+  err = guest_from_x(&ph, CELL(cia, 3));
+  ON_ERROR("ph", err, done);
+
+  node = rom_node_offset_by_phandle(fdt, ph);
+  if (node < 0) {
+    WARN("looking up unknown phandle 0x%x", ph);
+    goto done;
+  }
+
+  node = fdt_subnode(fdt, node);
+  if (node < 0) {
+    goto done;
+  } else {
+    ph_child = rom_get_phandle(fdt, node);
+    if (ph_child == 0) {
+      WARN("missing phandle for child node 0x%x (%s)",
+           node, fdt_get_name(fdt, node, NULL));
+      goto done;
+    }
+  }
+
+ done:
+  VERBOSE("phandle 0x%x is child to 0x%x", ph_child, ph);
+  err = guest_to_x(CELL(cia, 4), &ph_child);
+  ON_ERROR("out ph", err, done);
+  return err;
+}
+
+static err_t
+rom_peer(gea_t cia,
+         count_t in,
+         count_t out)
+{
+  int node;
+  err_t err;
+  phandle_t ph;
+  /*
+   * 'peer' always returns 0 on failure.
+   */
+  phandle_t ph_peer = 0;
+
+  err = guest_from_x(&ph, CELL(cia, 3));
+  ON_ERROR("ph", err, done);
+
+  if (ph == 0) {
+    /*
+     * root.
+     */
+    ph_peer = ROOT_PHANDLE;
+    goto done;
+  }
+
+  node = rom_node_offset_by_phandle(fdt, ph);
+  if (node < 0) {
+    WARN("looking up unknown phandle 0x%x", ph);
+    goto done;
+  }
+
+  node = fdt_sibling(fdt, node);
+  if (node < 0) {
+    goto done;
+  } else {
+    ph_peer = rom_get_phandle(fdt, node);
+    if (ph_peer == 0) {
+      WARN("missing phandle for sibling node 0x%x (%s)",
+           node, fdt_get_name(fdt, node, NULL));
+      goto done;
+    }
+  }
+
+ done:
+  VERBOSE("phandle 0x%x is peer to 0x%x", ph_peer, ph);
+  err = guest_to_x(CELL(cia, 4), &ph_peer);
+  ON_ERROR("out ph", err, done);
+  return err;
+}
+
+static err_t
+rom_parent(gea_t cia,
+           count_t in,
+           count_t out)
+{
+  int node;
+  err_t err;
+  phandle_t ph;
+  phandle_t ph_parent;
+
+  err = guest_from_x(&ph, CELL(cia, 3));
+  ON_ERROR("ph", err, done);
+
+  if (ph == ROOT_PHANDLE) {
+    ph_parent = 0;
+    goto done;
+  }
+
+  node = rom_node_offset_by_phandle(fdt, ph);
+  if (node < 0) {
+    WARN("looking up unknown phandle 0x%x", ph);
+    goto done;
+  }
+
+  node = fdt_parent_offset(fdt, node);
+  if (node < 0) {
+    goto done;
+  } else {
+    ph_parent = rom_get_phandle(fdt, node);
+    if (ph_parent == 0) {
+      WARN("missing phandle for sibling node 0x%x (%s)",
+           node, fdt_get_name(fdt, node, NULL));
+      goto done;
+    }
+  }
+
+ done:
+  VERBOSE("phandle 0x%x is parent to 0x%x", ph_parent, ph);
+  err = guest_to_x(CELL(cia, 4), &ph_parent);
+  ON_ERROR("out ph", err, done);
   return err;
 }
 
@@ -759,6 +896,9 @@ rom_shutdown(gea_t cia,
 }
 
 cif_handler_t handlers[] = {
+  { rom_child, "child" },
+  { rom_peer, "peer" },
+  { rom_parent, "parent" },
   { rom_itopackage, "instance-to-package" },
   { rom_finddevice, "finddevice" },
   { rom_getprop, "getprop" },

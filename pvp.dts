@@ -10,7 +10,7 @@
 	#address-cells = <1>;
 	#size-cells = <1>;
 
-	cpus {
+	cpus: cpus {
 		#cpus = <1>;
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -166,6 +166,6 @@
 	};
 
 	__internal_refs {
-		refs = <&chosen &options &openprom &mem>;
+		refs = <&chosen &options &openprom &mem &cpus>;
 	};
 };
