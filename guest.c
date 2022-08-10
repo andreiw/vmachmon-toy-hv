@@ -195,3 +195,41 @@ guest_to(gea_t dest,
 
   return ERR_NONE;
 }
+
+err_t
+guest_emulate(void)
+{
+  err_t err;
+  uint32_t insn;
+
+  err = guest_from_x(&insn, guest->regs->ppcPC);
+  ON_ERROR("read insn", err, done);
+
+#define R(x) guest->regs->ppcGPRs[x]
+
+  err = ERR_UNSUPPORTED;
+  if ((insn & INST_MFSPR_MASK) == INST_MFSPR) {
+    int reg = MASK_OFF(insn, 25, 21);
+    int spr = MASK_OFF(insn, 20, 11);
+    spr = ((spr & 0x1f) << 5) | ((spr & 0x3e0) >> 5);
+    switch (spr) {
+    case SPRN_PVR:
+      R(reg) = guest->pvr;
+      err = ERR_NONE;
+      break;
+    default:
+      WARN("0x%x: unhandled MFSPR r%u, %u",
+           guest->regs->ppcPC, reg, spr);
+      return ERR_UNSUPPORTED;
+    }
+  }
+
+ done:
+  if (err == ERR_NONE) {
+    guest->regs->ppcPC += 4;
+  } else {
+    WARN("0x%x: unhandled instruction 0x%x",
+         guest->regs->ppcPC, insn);
+  }
+  return err;
+}

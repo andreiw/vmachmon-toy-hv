@@ -98,7 +98,11 @@ main(int argc, char **argv)
     case kVmmReturnAlignmentFault:
       goto unhandled;
     case kVmmReturnProgramException:
-      goto unhandled;
+      err = guest_emulate();
+      if (err != ERR_NONE) {
+        goto unhandled;
+      }
+      break;
     case kVmmReturnTraceException:
       goto unhandled;
     case kVmmAltivecAssist:

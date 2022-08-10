@@ -21,29 +21,18 @@
 #define SR_VSID_MASK            0xFFFFFF
 #define SR_VSID_SHIFT           0
 
-// PowerPC instruction template: add immediate, D-form
-typedef struct I_addi_d_form {
-    u_int32_t OP: 6;  // major opcode
-    u_int32_t RT: 5;  // target register
-    u_int32_t RA: 5;  // register operand
-    u_int32_t SI: 16; // immediate operand
-} I_addi_d_form;
+#define INST_MTSPR_MASK         0xfc0007fe
+#define INST_MFSPR_MASK         0xfc0007fe
+#define INST_MTMSR_MASK         0xfc0007fe
+#define INST_MFMSR_MASK         0xfc0007fe
+#define INST_MFSR_MASK          0xfc0007fe
+#define INST_RFI_MASK           0xfc0007fe
 
-// PowerPC instruction template: unconditional branch, I-form
-typedef struct branch_i_form {
-    u_int32_t OP: 6;  // major opcode
-    u_int32_t LI: 24; // branch target (immediate)
-    u_int32_t AA: 1;  // absolute or relative
-    u_int32_t LK: 1;  // link or not
-} I_branch_i_form;
+#define INST_MTSPR              0x7c0003a6
+#define INST_MFSPR              0x7c0002a6
+#define INST_MTMSR              0x7c000124
+#define INST_MFMSR              0x7c0000a6
+#define INST_MFSR               0x7c0004a6
+#define INST_RFI                0x4c000064
 
-// PowerPC instruction template: add, XO-form
-typedef struct I_add_xo_form {
-    u_int32_t OP: 6;  // major opcode
-    u_int32_t RT: 5;  // target register
-    u_int32_t RA: 5;  // register operand A
-    u_int32_t RB: 5;  // register operand B
-    u_int32_t OE: 1;  // alter SO, OV?
-    u_int32_t XO: 9;  // extended opcode
-    u_int32_t Rc: 1;  // alter CR0?
-} I_add_xo_form;
+#define SPRN_PVR        0x11f /* Processor Version Register */
