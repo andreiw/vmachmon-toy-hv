@@ -157,6 +157,7 @@
 		stdin = <&console>;
 		memory = <&mem>;
 		mmu = <&cpu>;
+		cpu = <&cpu>;
 	};
 
 	aliases {

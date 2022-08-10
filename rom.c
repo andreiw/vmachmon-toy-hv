@@ -495,7 +495,8 @@ rom_getprop_ex(int node,
   }
 
   if (data == NULL) {
-    WARN("property '%s' not found in node %u", name, node);
+    WARN("property '%s' not found in node %u (%s)", name,
+         node, fdt_get_name(fdt, node, NULL));
     return ERR_NOT_FOUND;
   }
 
