@@ -381,8 +381,8 @@ rom_getprop_ex(int node,
                cell_t *len_out)
 {
   int len;
-  err_t err;
   const void *data;
+  err_t err = ERR_NONE;
 
   if (!strcmp(name, "name")) {
     if (node == 0) {
