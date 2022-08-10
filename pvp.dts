@@ -137,11 +137,11 @@
 		};
 	};
 
-	openprom {
+	openprom: openprom {
 		model = "HV,PVP";
 	};
 
-	options {
+	options: options {
 		LOADIDENTIFIER = "Boot PowerPC NT 4.0 on PVP";
 		OSLOADOPTIONS = "";
 		OSLOADPARTITION = "multi(0)disk(0)rdisk(0)partition(1)";
@@ -149,7 +149,7 @@
 		OSLOADFILENAME = "\\";
 	};
 
-	chosen {
+	chosen: chosen {
 		bootargs = "-vrdebug 0xffffffff";
 		// bootargs = "";
 		bootpath = &bootdev;
@@ -157,5 +157,14 @@
 		stdin = <&console>;
 		memory = <&mem>;
 		mmu = <&cpu>;
+	};
+
+	aliases {
+		mem = "/memory";
+		mmu = "/cpus/cpu";
+	};
+
+	__internal_refs {
+		refs = <&chosen &options &openprom &mem>;
 	};
 };

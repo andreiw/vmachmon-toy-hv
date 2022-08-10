@@ -18,9 +18,10 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
+#define IH_2_PH(x) (x)
+#define PH_2_IH(x) (x)
+
 #define CELL(x, i) (x + i * sizeof(cell_t))
-#define NODE_MUNGE(x) (x + 0x10000000)
-#define NODE_DEMUNGE(x) (x - 0x10000000)
 
 typedef uint32_t cell_t;
 typedef cell_t phandle_t;
@@ -28,6 +29,8 @@ typedef cell_t ihandle_t;
 
 static void *fdt;
 static int memory_node;
+static ihandle_t mmu_ihandle;
+static ihandle_t memory_ihandle;
 static ranges_t guest_mem_avail_ranges;
 static ranges_t guest_mem_reg_ranges;
 static gra_t cif_trampoline;
@@ -43,6 +46,37 @@ typedef struct {
   err_t (*handler)(gea_t cia);
   const char *name;
 } cif_handler_t;
+
+static phandle_t
+rom_get_phandle(void *fdt, int node)
+{
+  if (node == 0) {
+    return 0;
+  }
+
+  return fdt_get_phandle(fdt, node);
+}
+
+static ihandle_t
+rom_path_to_ihandle(const char *path)
+{
+  int node = fdt_path_offset(fdt, path);
+  if (node == -1) {
+    return -1;
+  }
+
+  return PH_2_IH(rom_get_phandle(fdt, node));
+}
+
+static int
+rom_node_offset_by_phandle(void *fdt, phandle_t phandle)
+{
+  if (phandle == 0) {
+    return 0;
+  }
+
+  return fdt_node_offset_by_phandle(fdt, phandle);
+}
 
 static uint32_t
 rom_claim_ex(uint32_t addr,
@@ -116,6 +150,104 @@ rom_claim(gea_t cia)
 
   err = guest_to_x(CELL(cia, 6), &out);
   ON_ERROR("out", err, done);
+ done:
+  return err;
+}
+
+err_t
+rom_callmethod(gea_t cia)
+{
+  err_t err;
+  gea_t method_ea;
+  ihandle_t ihandle;
+  char *call;
+
+  err = guest_from_x(&method_ea, CELL(cia, 3));
+  ON_ERROR("method ea", err, done);
+
+  err = guest_from_x(&ihandle, CELL(cia, 4));
+  ON_ERROR("ihandle", err, done);
+
+  call = xfer_buf;
+  call[guest_from_ex(call, method_ea, sizeof(xfer_buf) - 1, 1, true)] = '\0';
+
+  err = ERR_UNSUPPORTED;
+  if (ihandle == memory_ihandle && !strcmp("claim", call)) {
+    cell_t align;
+    cell_t size;
+    cell_t addr;
+    cell_t result;
+
+    err = guest_from_x(&align, CELL(cia, 5));
+    ON_ERROR("mclaim align", err, done);
+
+    err = guest_from_x(&size, CELL(cia, 6));
+    ON_ERROR("mclaim size", err, done);
+
+    err = guest_from_x(&addr, CELL(cia, 7));
+    ON_ERROR("mclaim addr", err, done);
+
+    result = rom_claim_ex(addr, size, align);
+
+    err = guest_to_x(CELL(cia, 9), &result);
+    ON_ERROR("mclaim result", err, done);
+
+    result = 0;
+    err = guest_to_x(CELL(cia, 8), &result);
+    ON_ERROR("mclaim outer result", err, done);
+  } else if (ihandle == mmu_ihandle && !strcmp("map", call)) {
+    cell_t phys;
+    cell_t virt;
+    cell_t size;
+    cell_t mode;
+    cell_t result;
+
+    err = guest_from_x(&mode, CELL(cia, 5));
+    ON_ERROR("mmap mode", err, done);
+
+    err = guest_from_x(&size, CELL(cia, 6));
+    ON_ERROR("mmap size", err, done);
+
+    err = guest_from_x(&virt, CELL(cia, 7));
+    ON_ERROR("mmap virt", err, done);
+
+    err = guest_from_x(&phys, CELL(cia, 8));
+    ON_ERROR("mmap phys", err, done);
+
+    if (mode != -1) {
+      WARN("mmu map phys 0x%x virt 0x%x size 0x%x mode 0x%x",
+           phys, virt, size, mode);
+    }
+
+    result = 0;
+    if (phys != virt) {
+      if (pmem_gra_valid(phys)) {
+        ha_t ha;
+        ha = pmem_ha(phys);
+
+        while (size != 0) {
+          err = guest_map(ha, virt);
+          if (err != ERR_NONE) {
+            result = -0;
+            break;
+          }
+
+          ha += PAGE_SIZE;
+          virt += PAGE_SIZE;
+          size -= PAGE_SIZE;
+        }
+      } else {
+        result = -1;
+      }
+    }
+
+    err = guest_to_x(CELL(cia, 9), &result);
+    ON_ERROR("mmap outer result", err, done);
+  } else {
+    ERROR(err, "Unknown method '%s' on ihandle 0x%x",
+          call, ihandle);
+  }
+
  done:
   return err;
 }
@@ -208,12 +340,12 @@ rom_init(const char *fdt_path)
   ON_POSIX_ERROR("fdt read", ret, posix_err);
   close(fd);
 
-  /*
-   * We'll special case property accesses for RAM since
-   * we need to feed live available ranges.
-   */
-  memory_node = fdt_node_offset_by_dtype(fdt, -1, "memory");
+  memory_node = fdt_path_offset(fdt, "mem");
   BUG_ON(memory_node == -1, "memory node missing from DT template");
+  memory_ihandle = PH_2_IH(rom_get_phandle(fdt, memory_node));
+
+  mmu_ihandle = rom_path_to_ihandle("mmu");
+  BUG_ON(mmu_ihandle == -1, "mmu node missing from DT template");
 
   /*
    * CIF entry.
@@ -380,6 +512,7 @@ rom_getprop_ex(int node,
 static err_t
 rom_getprop(gea_t cia)
 {
+  int node;
   err_t err;
   phandle_t phandle;
   gea_t prop_ea;
@@ -401,11 +534,53 @@ rom_getprop(gea_t cia)
   ON_ERROR("len in", err, done);
 
   p[guest_from_ex(p, prop_ea, sizeof(xfer_buf), 1, true)] = '\0';
-  err = rom_getprop_ex(NODE_DEMUNGE(phandle), p, len_in,
+
+  node = rom_node_offset_by_phandle(fdt, phandle);
+  if (node < 0) {
+    err = ERR_NOT_FOUND;
+    ON_ERROR("rom_node_offset_by_phandle", err, done);
+  }
+
+  err = rom_getprop_ex(node, p, len_in,
                        &data_ea, &len_out);
   ON_ERROR("rom_getprop_ex", err, done);
 
   err = guest_to_x(CELL(cia, 7), &len_out);
+  ON_ERROR("len_out", err, done);
+
+ done:
+  return err;
+}
+
+static err_t
+rom_getproplen(gea_t cia)
+{
+  int node;
+  err_t err;
+  phandle_t phandle;
+  gea_t prop_ea;
+  cell_t len_out;
+  char *p = xfer_buf;
+
+  err = guest_from_x(&phandle, CELL(cia, 3));
+  ON_ERROR("phandle", err, done);
+
+  err = guest_from_x(&prop_ea, CELL(cia, 4));
+  ON_ERROR("prop ea", err, done);
+
+  p[guest_from_ex(p, prop_ea, sizeof(xfer_buf), 1, true)] = '\0';
+
+  node = rom_node_offset_by_phandle(fdt, phandle);
+  if (node < 0) {
+    err = ERR_NOT_FOUND;
+    ON_ERROR("rom_node_offset_by_phandle", err, done);
+  }
+
+  err = rom_getprop_ex(node, p, 0,
+                       NULL, &len_out);
+  ON_ERROR("rom_getprop_ex", err, done);
+
+  err = guest_to_x(CELL(cia, 5), &len_out);
   ON_ERROR("len_out", err, done);
 
  done:
@@ -430,7 +605,7 @@ rom_finddevice(gea_t cia)
     WARN("dev '%s' not found", d);
     phandle = -1;
   } else {
-    phandle = NODE_MUNGE(node);
+    phandle = rom_get_phandle(fdt, node);
   }
 
   err = guest_to_x(CELL(cia, 4), &phandle);
@@ -547,6 +722,7 @@ rom_shutdown(gea_t cia)
 cif_handler_t handlers[] = {
   { rom_finddevice, "finddevice" },
   { rom_getprop, "getprop" },
+  { rom_getproplen, "getproplen" },
   { rom_write, "write" },
   { rom_read, "read" },
   { rom_claim, "claim" },
@@ -555,6 +731,7 @@ cif_handler_t handlers[] = {
   { rom_shutdown, "boot" },
   { rom_shutdown, "chain" },
   { rom_milliseconds, "milliseconds" },
+  { rom_callmethod, "call-method" },
 };
 
 err_t
