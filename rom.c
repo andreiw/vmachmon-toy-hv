@@ -137,7 +137,7 @@ rom_claim_ex(uint32_t addr,
   return out;
 }
 
-err_t
+static err_t
 rom_milliseconds(gea_t cia,
                  count_t in,
                  count_t out)
@@ -155,7 +155,7 @@ rom_milliseconds(gea_t cia,
   return err;
 }
 
-err_t
+static err_t
 rom_claim(gea_t cia,
           count_t in_count,
           count_t out_count)
@@ -183,7 +183,7 @@ rom_claim(gea_t cia,
   return err;
 }
 
-err_t
+static err_t
 rom_mem_call(gea_t cia,
              const char *call,
              count_t in,
@@ -217,7 +217,7 @@ rom_mem_call(gea_t cia,
   return err;
 }
 
-err_t
+static err_t
 rom_mmu_call(gea_t cia,
              const char *call,
              count_t in,
@@ -275,7 +275,7 @@ rom_mmu_call(gea_t cia,
   return err;
 }
 
-err_t
+static err_t
 rom_callmethod(gea_t cia,
                count_t in,
                count_t out)
