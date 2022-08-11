@@ -644,7 +644,6 @@ rom_getproplen(gea_t cia,
   node = rom_node_offset_by_phandle(phandle);
   if (node < 0) {
     err = ERR_NOT_FOUND;
-    WARN("looking up unknown phandle 0x%x", phandle);
     len_out = -1;
   } else {
     err = rom_getprop_ex(node, p, 0,
@@ -679,7 +678,6 @@ rom_child(gea_t cia,
 
   node = rom_node_offset_by_phandle(ph);
   if (node < 0) {
-    WARN("looking up unknown phandle 0x%x", ph);
     goto done;
   }
 
@@ -719,7 +717,6 @@ rom_peer(gea_t cia,
 
   node = rom_node_offset_by_phandle(ph);
   if (node < 0) {
-    WARN("looking up unknown phandle 0x%x", ph);
     goto done;
   }
 
@@ -774,6 +771,57 @@ rom_parent(gea_t cia,
   err = guest_to_x(CIA_ARG(1), &ph_parent);
   ON_ERROR("out ph", err, done);
   return err;
+}
+
+static err_t
+rom_ptopath(gea_t cia,
+            count_t in,
+            count_t out)
+{
+  err_t err;
+  int node;
+  phandle_t ph;
+  gea_t buf_ea;
+  cell_t buf_len;
+  cell_t result;
+
+  err = guest_from_x(&ph, CIA_ARG(0));
+  ON_ERROR("ph", err, access_fail);
+
+  err = guest_from_x(&buf_ea, CIA_ARG(1));
+  ON_ERROR("buf_ea", err, access_fail);
+
+  err = guest_from_x(&buf_len, CIA_ARG(2));
+  ON_ERROR("buf_len", err, access_fail);
+
+  node = rom_node_offset_by_phandle(ph);
+  if (node < 0) {
+    result = -1;
+    goto done;
+  }
+
+  if (fdt_get_path(fdt, node, (char *) xfer_buf,
+                   sizeof(xfer_buf)) < 0) {
+    WARN("could not get path for valid phandle 0x%x", ph);
+    result = -1;
+    goto done;
+  }
+
+  result = strlen((char *)xfer_buf);
+  if (buf_len != 0) {
+    buf_len = min(buf_len, result + 1);
+    err = guest_to(buf_ea, xfer_buf, buf_len, 1);
+    ON_ERROR("buf", err, access_fail);
+  }
+
+ done:
+  err = guest_to_x(CIA_ARG(3), &result);
+  ON_ERROR("result", err, access_fail);
+  return ERR_NONE;
+
+ access_fail:
+  return err;
+
 }
 
 static err_t
@@ -1049,6 +1097,7 @@ cif_handler_t handlers[] = {
   { rom_shutdown, "chain" },
   { rom_milliseconds, "milliseconds" },
   { rom_callmethod, "call-method" },
+  { rom_ptopath, "package-to-path" }
 };
 
 err_t
