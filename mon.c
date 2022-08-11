@@ -488,6 +488,33 @@ mon_bye(void)
 }
 
 err_t
+mon_trace(void)
+{
+  int rc;
+
+  picolVar *v = picolGetVar(interp, "on_trace");
+  if (v == NULL) {
+    return ERR_NONE;
+  }
+
+  rc = picolEval(interp, v->val);
+  if (interp->result[0] != '\0' || rc != PICOL_OK) {
+    mon_printf("[%d] %s\n", rc, interp->result);
+  }
+
+  if (picol_err != ERR_NONE) {
+    err_t r = picol_err;
+    picol_err = ERR_NONE;
+
+    if (r != ERR_CONTINUE) {
+      return r;
+    }
+  }
+
+  return ERR_NONE;
+}
+
+err_t
 mon_check(void)
 {
   char c;

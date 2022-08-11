@@ -123,6 +123,11 @@ main(int argc, char **argv)
       goto unhandled;
     }
 
+    err = mon_trace();
+    if (err != ERR_NONE) {
+      goto unhandled;
+    }
+
     err = mon_check();
     if (err != ERR_NONE && err != ERR_CONTINUE) {
       goto unhandled;
