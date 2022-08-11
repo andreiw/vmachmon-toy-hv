@@ -228,17 +228,19 @@ PICOL_COMMAND(dump) {
 }
 
 PICOL_COMMAND(memread) {
-  PICOL_ARITY2(argc == 3, "mrc/mr8/mr6/mr32 ea");
+  PICOL_ARITY2(argc == 2 || argc == 3, "mrc/mr8/mr6/mr32 ea ?count");
 
   gea_t ea;
-  count_t count;
+  count_t count = 1;
   err_t err = ERR_NONE;
   char buf[PICOL_MAX_STR] = "";
   char formatted[sizeof("0xyyyyxxxx")];
   char t = argv[0][2];
 
   PICOL_SCAN_INT(ea, argv[1]);
-  PICOL_SCAN_INT(count, argv[2]);
+  if (argc == 3) {
+    PICOL_SCAN_INT(count, argv[2]);
+  }
 
   while (count--) {
     if (t == '8' || t == 'c') {
@@ -342,7 +344,7 @@ static void
 mon_on_connect(socket_t *s)
 {
   const char *banner =
-    "This is the PVP monitor console\r\n"
+    "\nThis is the PVP monitor console\r\n"
     "-------------------------------\r\n\n";
 
   mon_printf("%s", banner);

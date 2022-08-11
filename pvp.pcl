@@ -11,8 +11,23 @@ proc cif_dump {} {
         return
      }
      set cia [r3]
-     puts "In "[mr32 [expr $cia + 4] 1]\ out\ [mr32 [expr $cia + 8] 1]
-     puts "Service: "[mrs [mr32 [expr $cia + 0] 1]]\
+     set service [mrs [mr32 [expr $cia + 0]]]
+     set in [mr32 [expr $cia + 4]]
+     set out [mr32 [expr $cia + 8]]
+     puts "Service: "$service
+     puts "Argument array: "$cia
+     puts "In: "$in\ Out:\ $out
+     for {set i 0} {$i < $in} {incr i} {
+         set addr [expr $cia + [expr 4 * [expr $i + 3]]]
+         set val [mr32 $addr]
+         puts "Arg"$i\ ($addr):\ $val
+     }
+     for {set i 0} {$i < $out} {incr i} {
+         set n [expr $in + 3]
+         set addr [expr $cia + [expr 4 * [expr $i + $n]]]
+         set val [mr32 $addr]
+         puts "Ret"$i\ ($addr):\ $val
+     }
 }
 
 proc cif_fail {} {

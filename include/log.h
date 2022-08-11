@@ -46,21 +46,23 @@ void _log(unsigned level, unsigned log_lvl, unsigned error_extra,
 #define DEBUG(fmt, ...)   _LOG(LOG_DEBUG, 0, fmt, ## __VA_ARGS__)
 #endif /* Not OPTIMIZED */
 
+#define LOG_FL_S "%s(%u): "
+
 #define ON_ERROR(msg, error, out) \
-  if (error != ERR_NONE) { ERROR(error, msg); goto out; }
+  if (error != ERR_NONE) { ERROR(error, LOG_FL_S msg, __FILE__, __LINE__); goto out; }
 
 #define ON_MACH_ERROR(msg, error, out) \
-  if (error != KERN_SUCCESS) { MACH_ERROR(error, msg); goto out; }
+  if (error != KERN_SUCCESS) { MACH_ERROR(error, LOG_FL_S msg, __FILE__, __LINE__); goto out; }
 
 #define ON_POSIX_ERROR(msg, error, out) \
-  if (error < 0) { POSIX_ERROR(errno, msg); goto out; }
+  if (error < 0) { POSIX_ERROR(errno, LOG_FL_S msg, __FILE__, __LINE__); goto out; }
 
 #define ON_VMM_ERROR(msg, error, out) \
   if (error != kVmmReturnNull) { VMM_ERROR(error, msg); goto out; }
 
 #define BUG_ON(x, fmt, ...) do {                                        \
     if ((x)) {                                                          \
-      FATAL(ERR_ASSERT, "%s:%u %s: " fmt, __FILE__, __LINE__, SIFY(x), ## __VA_ARGS__); \
+      FATAL(ERR_ASSERT, LOG_FL_S "%s - " fmt, __FILE__, __LINE__, SIFY(x), ## __VA_ARGS__); \
       abort();                                                          \
     }                                                                   \
   } while(0);

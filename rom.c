@@ -23,8 +23,15 @@
 #define CELL(x, i) (x + i * sizeof(cell_t))
 #define CIA_SERVICE CELL(cia, 0)
 #define CIA_IN      CELL(cia, 1)
-#define CIA_OUT     CELL(cia ,2)
-#define CIA_ARG(x)  CELL(cia, (3 + x))
+#define CIA_OUT     CELL(cia, 2)
+#define CIA_ARG(x)  ({                                 \
+      BUG_ON(x >= cia_in, "arg %u out of bounds", x);  \
+      CELL(cia, (3 + (x)));                            \
+    })
+#define CIA_RET(x)  ({                                  \
+      BUG_ON(x >= cia_out, "ret %u out of bounds", x);  \
+      CELL(cia, (3 + cia_in + (x)));                    \
+    })
 
 typedef uint32_t cell_t;
 typedef cell_t phandle_t;
@@ -47,7 +54,8 @@ static gra_t stack_end;
 static uint8_t xfer_buf[PAGE_SIZE];
 
 typedef struct {
-  err_t (*handler)(gea_t cia, count_t in, count_t out);
+  err_t (*handler)(gea_t cia, count_t cia_in,
+                   count_t cia_out);
   const char *name;
 } cif_handler_t;
 
@@ -139,8 +147,8 @@ rom_claim_ex(uint32_t addr,
 
 static err_t
 rom_milliseconds(gea_t cia,
-                 count_t in,
-                 count_t out)
+                 count_t cia_in,
+                 count_t cia_out)
 {
   err_t err;
   cell_t ms;
@@ -148,7 +156,7 @@ rom_milliseconds(gea_t cia,
   gettimeofday(&te, NULL);
 
   ms = te.tv_sec * 1000 + te.tv_usec / 1000;
-  err = guest_to_x(CIA_ARG(0), &ms);
+  err = guest_to_x(CIA_RET(0), &ms);
   ON_ERROR("out", err, done);
 
  done:
@@ -157,8 +165,8 @@ rom_milliseconds(gea_t cia,
 
 static err_t
 rom_claim(gea_t cia,
-          count_t in_count,
-          count_t out_count)
+          count_t cia_in,
+          count_t cia_out)
 {
   err_t err;
   cell_t addr;
@@ -177,7 +185,7 @@ rom_claim(gea_t cia,
 
   out = rom_claim_ex(addr, size, align);
 
-  err = guest_to_x(CIA_ARG(3), &out);
+  err = guest_to_x(CIA_RET(0), &out);
   ON_ERROR("out", err, done);
  done:
   return err;
@@ -186,8 +194,8 @@ rom_claim(gea_t cia,
 static err_t
 rom_mem_call(gea_t cia,
              const char *call,
-             count_t in,
-             count_t out)
+             count_t cia_in,
+             count_t cia_out)
 {
   err_t err;
   cell_t align;
@@ -210,7 +218,7 @@ rom_mem_call(gea_t cia,
 
   result = rom_claim_ex(addr, size, align);
 
-  err = guest_to_x(CIA_ARG(in + out - 1), &result);
+  err = guest_to_x(CIA_RET(1), &result);
   ON_ERROR("mclaim result", err, done);
 
  done:
@@ -220,8 +228,8 @@ rom_mem_call(gea_t cia,
 static err_t
 rom_mmu_call(gea_t cia,
              const char *call,
-             count_t in,
-             count_t out)
+             count_t cia_in,
+             count_t cia_out)
 {
   err_t err;
   gra_t phys;
@@ -277,8 +285,8 @@ rom_mmu_call(gea_t cia,
 
 static err_t
 rom_callmethod(gea_t cia,
-               count_t in,
-               count_t out)
+               count_t cia_in,
+               count_t cia_out)
 {
   err_t err;
   gea_t method_ea;
@@ -296,9 +304,9 @@ rom_callmethod(gea_t cia,
   call[guest_from_ex(call, method_ea, sizeof(xfer_buf) - 1, 1, true)] = '\0';
 
   if (ihandle == memory_ihandle) {
-    err = rom_mem_call(cia, call, in, out);
+    err = rom_mem_call(cia, call, cia_in, cia_out);
   } else if (ihandle == mmu_ihandle) {
-    err = rom_mmu_call(cia, call, in, out);
+    err = rom_mmu_call(cia, call, cia_in, cia_out);
   } else {
     err = ERR_UNSUPPORTED;
   }
@@ -307,7 +315,7 @@ rom_callmethod(gea_t cia,
    * outer (call-method) result.
    */
   result = err == ERR_NONE ? 0 : -1;
-  err = guest_to_x(CIA_ARG(in), &result);
+  err = guest_to_x(CIA_RET(0), &result);
  done:
   return err;
 }
@@ -575,8 +583,8 @@ rom_getprop_ex(int node,
 
 static err_t
 rom_getprop(gea_t cia,
-            count_t in,
-            count_t out)
+            count_t cia_in,
+            count_t cia_out)
 {
   int node;
   err_t err;
@@ -614,7 +622,7 @@ rom_getprop(gea_t cia,
     }
   }
 
-  err = guest_to_x(CIA_ARG(4), &len_out);
+  err = guest_to_x(CIA_RET(0), &len_out);
   ON_ERROR("len_out", err, done);
 
  done:
@@ -623,8 +631,8 @@ rom_getprop(gea_t cia,
 
 static err_t
 rom_getproplen(gea_t cia,
-               count_t in,
-               count_t out)
+               count_t cia_in,
+               count_t cia_out)
 {
   int node;
   err_t err;
@@ -653,7 +661,7 @@ rom_getproplen(gea_t cia,
     }
   }
 
-  err = guest_to_x(CIA_ARG(2), &len_out);
+  err = guest_to_x(CIA_RET(0), &len_out);
   ON_ERROR("len_out", err, done);
 
  done:
@@ -662,8 +670,8 @@ rom_getproplen(gea_t cia,
 
 static err_t
 rom_child(gea_t cia,
-          count_t in,
-          count_t out)
+          count_t cia_in,
+          count_t cia_out)
 {
   int node;
   err_t err;
@@ -689,15 +697,15 @@ rom_child(gea_t cia,
   }
 
  done:
-  err = guest_to_x(CIA_ARG(1), &ph_child);
+  err = guest_to_x(CIA_RET(0), &ph_child);
   ON_ERROR("out ph", err, done);
   return err;
 }
 
 static err_t
 rom_peer(gea_t cia,
-         count_t in,
-         count_t out)
+         count_t cia_in,
+         count_t cia_out)
 {
   int node;
   err_t err;
@@ -728,15 +736,15 @@ rom_peer(gea_t cia,
   }
 
  done:
-  err = guest_to_x(CIA_ARG(1), &ph_peer);
+  err = guest_to_x(CIA_RET(0), &ph_peer);
   ON_ERROR("out ph", err, done);
   return err;
 }
 
 static err_t
 rom_parent(gea_t cia,
-           count_t in,
-           count_t out)
+           count_t cia_in,
+           count_t cia_out)
 {
   int node;
   err_t err;
@@ -768,15 +776,15 @@ rom_parent(gea_t cia,
   ph_parent = rom_get_phandle(node);
 
  done:
-  err = guest_to_x(CIA_ARG(1), &ph_parent);
+  err = guest_to_x(CIA_RET(0), &ph_parent);
   ON_ERROR("out ph", err, done);
   return err;
 }
 
 static err_t
 rom_ptopath(gea_t cia,
-            count_t in,
-            count_t out)
+            count_t cia_in,
+            count_t cia_out)
 {
   err_t err;
   int node;
@@ -815,7 +823,7 @@ rom_ptopath(gea_t cia,
   }
 
  done:
-  err = guest_to_x(CIA_ARG(3), &result);
+  err = guest_to_x(CIA_RET(0), &result);
   ON_ERROR("result", err, access_fail);
   return ERR_NONE;
 
@@ -826,8 +834,8 @@ rom_ptopath(gea_t cia,
 
 static err_t
 rom_itopath(gea_t cia,
-            count_t in,
-            count_t out)
+            count_t cia_in,
+            count_t cia_out)
 {
   err_t err;
   int node;
@@ -866,7 +874,7 @@ rom_itopath(gea_t cia,
   }
 
  done:
-  err = guest_to_x(CIA_ARG(3), &result);
+  err = guest_to_x(CIA_RET(0), &result);
   ON_ERROR("result", err, access_fail);
   return ERR_NONE;
 
@@ -876,8 +884,8 @@ rom_itopath(gea_t cia,
 
 static err_t
 rom_itopackage(gea_t cia,
-               count_t in,
-               count_t out)
+               count_t cia_in,
+               count_t cia_out)
 {
   err_t err;
   int node;
@@ -894,7 +902,7 @@ rom_itopackage(gea_t cia,
     ph = rom_get_phandle(node);
   }
 
-  err = guest_to_x(CIA_ARG(1), &ph);
+  err = guest_to_x(CIA_RET(0), &ph);
   ON_ERROR("ph", err, done);
 
  done:
@@ -903,8 +911,8 @@ rom_itopackage(gea_t cia,
 
 static err_t
 rom_finddevice(gea_t cia,
-               count_t in,
-               count_t out)
+               count_t cia_in,
+               count_t cia_out)
 {
   int node;
   err_t err;
@@ -924,7 +932,7 @@ rom_finddevice(gea_t cia,
     phandle = rom_get_phandle(node);
   }
 
-  err = guest_to_x(CIA_ARG(1), &phandle);
+  err = guest_to_x(CIA_RET(0), &phandle);
   ON_ERROR("phandle", err, done);
 
  done:
@@ -933,8 +941,8 @@ rom_finddevice(gea_t cia,
 
 static err_t
 rom_read(gea_t cia,
-         count_t in,
-         count_t out)
+         count_t cia_in,
+         count_t cia_out)
 {
   err_t err;
   ihandle_t ihandle;
@@ -985,7 +993,7 @@ rom_read(gea_t cia,
   }
 
  done:
-  err = guest_to_x(CIA_ARG(3), &len_out);
+  err = guest_to_x(CIA_RET(0), &len_out);
   ON_ERROR("len_out", err, access_fail);
 
  access_fail:
@@ -1018,8 +1026,8 @@ rom_stdout_write(const uint8_t *s,
 
 static err_t
 rom_write(gea_t cia,
-          count_t in,
-          count_t out)
+          count_t cia_in,
+          count_t cia_out)
 {
   err_t err;
   ihandle_t ihandle;
@@ -1064,7 +1072,7 @@ rom_write(gea_t cia,
   }
 
  done:
-  err = guest_to_x(CIA_ARG(3), &len_out);
+  err = guest_to_x(CIA_RET(0), &len_out);
   ON_ERROR("len_out", err, done);
 
  access_fail:
@@ -1073,8 +1081,8 @@ rom_write(gea_t cia,
 
 static err_t
 rom_shutdown(gea_t cia,
-             count_t in,
-             count_t out)
+             count_t cia_in,
+             count_t cia_out)
 {
   return ERR_SHUTDOWN;
 }

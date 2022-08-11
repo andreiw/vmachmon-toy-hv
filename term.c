@@ -10,7 +10,7 @@ static void
 term_on_connect(socket_t *s)
 {
   const char *banner =
-    "This is the PVP console\r\n"
+    "\nThis is the PVP console\r\n"
     "-----------------------\r\n\n";
   socket_out(s, banner, strlen(banner));
 }
