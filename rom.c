@@ -12,6 +12,7 @@
 #include "pmem.h"
 #include "libfdt.h"
 #include "term.h"
+#include "list.h"
 
 #include <fcntl.h>
 #include <errno.h>
@@ -39,9 +40,9 @@ typedef cell_t ihandle_t;
 
 static void *fdt;
 static int memory_node;
+static struct list_head known_ihandles;
 static ihandle_t mmu_ihandle;
 static ihandle_t memory_ihandle;
-static ihandle_t console_ihandle;
 static ranges_t guest_mem_avail_ranges;
 static ranges_t guest_mem_reg_ranges;
 static gra_t cif_trampoline;
@@ -52,6 +53,28 @@ static gra_t stack_start;
 static gra_t stack_end;
 
 static uint8_t xfer_buf[PAGE_SIZE];
+
+struct ihandle_methods;
+typedef count_t (*ihandle_write_t)(struct ihandle_methods *im,
+                                   const uint8_t *b, count_t len);
+typedef count_t (*ihandle_read_t)(struct ihandle_methods *im,
+                                  uint8_t *b, count_t len);
+typedef err_t (*ihandle_seek_t)(struct ihandle_methods *im,
+                                offset_t offset);
+typedef void (*ihandle_close_t)(struct ihandle_methods *im);
+
+typedef struct ihandle_methods {
+  ihandle_write_t write;
+  ihandle_read_t read;
+  ihandle_seek_t seek;
+  ihandle_close_t close;
+} ihandle_methods_t;
+
+typedef struct ihandle_header {
+  ihandle_t value;
+  struct list_head link;
+  ihandle_methods_t methods;
+} ihandle_header_t;
 
 typedef struct {
   err_t (*handler)(gea_t cia, count_t cia_in,
@@ -92,6 +115,43 @@ static int
 rom_node_offset_by_ihandle(ihandle_t ihandle)
 {
   return fdt_node_offset_by_phandle(fdt, ihandle);
+}
+
+static ihandle_methods_t *
+rom_methods_by_ihandle(ihandle_t ihandle)
+{
+  ihandle_header_t *header;
+
+  list_for_each_entry(header, &known_ihandles, link) {
+    if (header->value == ihandle) {
+      return &header->methods;
+    }
+  }
+
+  return NULL;
+}
+
+static err_t
+rom_wrap_ihandle_with_methods(ihandle_t t,
+                              ihandle_write_t write,
+                              ihandle_read_t read,
+                              ihandle_seek_t seek,
+                              ihandle_close_t close)
+{
+  ihandle_header_t *h;
+
+  h = malloc(sizeof(ihandle_header_t));
+  if (h == NULL) {
+    return ERR_NO_MEM;
+  }
+
+  h->value = t;
+  h->methods.write = write;
+  h->methods.read = read;
+  h->methods.seek = seek;
+  h->methods.close = close;
+  list_add_tail(&h->link, &known_ihandles);
+  return ERR_NONE;
 }
 
 static uint32_t
@@ -320,6 +380,41 @@ rom_callmethod(gea_t cia,
   return err;
 }
 
+static count_t
+rom_console_read(ihandle_methods_t *im,
+                 uint8_t *s,
+                 count_t len)
+{
+  return term_in((char *) s, len);
+}
+
+static count_t
+rom_console_write(ihandle_methods_t *im,
+                  const uint8_t *s,
+                  count_t len)
+{
+  while (len--) {
+    if (*s == 0x9b) {
+      term_out("\33[", 2);
+    } else if (*s == 0xcd) {
+      term_out("=", 1);
+    } else if (*s == 0xba) {
+      term_out("|", 1);
+    } else if (*s == 0xbb ||
+               *s == 0xc8) {
+      term_out("\\", 1);
+    } else if (*s == 0xbc ||
+               *s == 0xc9) {
+      term_out("/", 1);
+    } else {
+      term_out((const char *) s, 1);
+    }
+    s++;
+  }
+
+  return len;
+}
+
 err_t
 rom_init(const char *fdt_path)
 {
@@ -333,10 +428,12 @@ rom_init(const char *fdt_path)
   const char *loader;
   void *loader_data;
   gea_t stack_base;
+  ihandle_t console_ihandle;
   err_t err = ERR_NONE;
 
   BUG_ON(pmem_size() <= MB(16), "guest RAM too small");
 
+  INIT_LIST_HEAD(&known_ihandles);
   range_init(&guest_mem_avail_ranges);
   range_init(&guest_mem_reg_ranges);
   range_add(&guest_mem_avail_ranges, 0,  pmem_size() - 1);
@@ -417,6 +514,12 @@ rom_init(const char *fdt_path)
 
   console_ihandle = rom_path_to_ihandle("con");
   BUG_ON(console_ihandle == -1, "console node missing from DT template");
+
+  err = rom_wrap_ihandle_with_methods(console_ihandle,
+                                      rom_console_write,
+                                      rom_console_read,
+                                      NULL, NULL);
+  ON_ERROR("rom_wrap_ihandle_with_methods", err, done);
 
   /*
    * CIF entry.
@@ -949,6 +1052,7 @@ rom_read(gea_t cia,
   cell_t data_ea;
   cell_t len_in;
   cell_t len_out;
+  ihandle_methods_t *methods;
 
   err = guest_from_x(&ihandle, CIA_ARG(0));
   ON_ERROR("ihandle", err, access_fail);
@@ -959,7 +1063,13 @@ rom_read(gea_t cia,
   err = guest_from_x(&len_in, CIA_ARG(2));
   ON_ERROR("data ea", err, access_fail );
 
-  if (ihandle != console_ihandle) {
+  methods = rom_methods_by_ihandle(ihandle);
+  if (methods != NULL) {
+    if (methods->read == NULL) {
+      len_out = -1;
+      goto done;
+    }
+  } else {
     len_out = -1;
     goto done;
   }
@@ -969,17 +1079,17 @@ rom_read(gea_t cia,
     length_t xferred;
     length_t xfer = min(len_in, sizeof(xfer_buf));
 
-    xferred = term_in((char *) xfer_buf, xfer);
+    xferred = methods->read(methods, xfer_buf, xfer);
 
     err = guest_to(data_ea, xfer_buf, xferred, 1);
     ON_ERROR("data", err, partial);
 
+    len_in -= xferred;
     if (xferred != xfer) {
       err = ERR_NOT_READY;
       goto partial;
     }
 
-    len_in -= xfer;
     data_ea += xfer;
   } while (len_in != 0);
 
@@ -1000,30 +1110,6 @@ rom_read(gea_t cia,
   return err;
 }
 
-static void
-rom_stdout_write(const uint8_t *s,
-                 uint32_t len)
-{
-  while (len--) {
-    if (*s == 0x9b) {
-      term_out("\33[", 2);
-    } else if (*s == 0xcd) {
-      term_out("=", 1);
-    } else if (*s == 0xba) {
-      term_out("|", 1);
-    } else if (*s == 0xbb ||
-               *s == 0xc8) {
-      term_out("\\", 1);
-    } else if (*s == 0xbc ||
-               *s == 0xc9) {
-      term_out("/", 1);
-    } else {
-      term_out((const char *) s, 1);
-    }
-    s++;
-  }
-}
-
 static err_t
 rom_write(gea_t cia,
           count_t cia_in,
@@ -1034,6 +1120,7 @@ rom_write(gea_t cia,
   cell_t data_ea;
   cell_t len_in;
   cell_t len_out;
+  ihandle_methods_t *methods;
 
   err = guest_from_x(&ihandle, CIA_ARG(0));
   ON_ERROR("ihandle", err, access_fail);
@@ -1044,26 +1131,38 @@ rom_write(gea_t cia,
   err = guest_from_x(&len_in, CIA_ARG(2));
   ON_ERROR("data ea", err, access_fail);
 
-  if (ihandle != console_ihandle) {
+  methods = rom_methods_by_ihandle(ihandle);
+  if (methods != NULL) {
+    if (methods->write == NULL) {
+      len_out = -1;
+      goto done;
+    }
+  } else {
     len_out = -1;
     goto done;
   }
 
   len_out = len_in;
   do {
+    length_t xferred;
     length_t xfer = min(len_in, sizeof(xfer_buf));
 
     err = guest_from(xfer_buf, data_ea, xfer, 1);
     ON_ERROR("data", err, partial);
 
-    rom_stdout_write(xfer_buf, xfer);
+    xferred = methods->write(methods, xfer_buf, xfer);
 
-    len_in -= xfer;
+    len_in -= xferred;
+    if (xferred != xfer) {
+      err = ERR_NOT_READY;
+      goto partial;
+    }
+
     data_ea += xfer;
   } while (len_in != 0);
 
  partial:
-  if (err == ERR_BAD_ACCESS) {
+  if (err == ERR_BAD_ACCESS || err == ERR_NOT_READY) {
     err = ERR_NONE;
   }
 
