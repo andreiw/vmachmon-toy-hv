@@ -34,6 +34,7 @@ static void *fdt;
 static int memory_node;
 static ihandle_t mmu_ihandle;
 static ihandle_t memory_ihandle;
+static ihandle_t console_ihandle;
 static ranges_t guest_mem_avail_ranges;
 static ranges_t guest_mem_reg_ranges;
 static gra_t cif_trampoline;
@@ -92,20 +93,37 @@ rom_claim_ex(uint32_t addr,
 {
   uint32_t out;
 
+  /*
+   * This implementation doesn't comply with
+   * IEEE-1275. Notably, it doesn't fail if
+   * a range is already claimed.
+   */
+
   if (align != 0) {
     claim_arena_ptr =
       ALIGN_UP(claim_arena_ptr, align);
 
-    BUG_ON(claim_arena_ptr >=
-           claim_arena_end, "claim arena overflow");
+    if (claim_arena_ptr >=
+        claim_arena_end) {
+      WARN("claim arena overflow");
+      return -1;
+    }
 
     out = (uint32_t) claim_arena_ptr;
     claim_arena_ptr += size;
 
-    BUG_ON(claim_arena_ptr >
-           claim_arena_end, "claim arena overflow");
+    if (claim_arena_ptr >
+        claim_arena_end) {
+      WARN("claim arena overflow");
+      return -1;
+    }
   } else {
-    BUG_ON(addr + size > pmem_size(), "addr outside pmem");
+    if (addr + size > pmem_size()) {
+      WARN("claimed [0x%x, 0x%lx) is outside pmem",
+           addr, addr + size);
+      return -1;
+    }
+
     out = addr;
   }
 
@@ -389,6 +407,9 @@ rom_init(const char *fdt_path)
   mmu_ihandle = rom_path_to_ihandle("mmu");
   BUG_ON(mmu_ihandle == -1, "mmu node missing from DT template");
 
+  console_ihandle = rom_path_to_ihandle("con");
+  BUG_ON(console_ihandle == -1, "console node missing from DT template");
+
   /*
    * CIF entry.
    */
@@ -539,13 +560,13 @@ rom_getprop_ex(int node,
   if (data == NULL) {
     WARN("property '%s' not found in node %u (%s)", name,
          node, fdt_get_name(fdt, node, NULL));
-    return ERR_NOT_FOUND;
-  }
-
-  *len_out = len;
-  if (data_ea != NULL) {
-    err = guest_to(*data_ea, data, min(len, len_in), 1);
-    ON_ERROR("data", err, done);
+    *len_out = -1;
+  } else {
+    *len_out = len;
+    if (data_ea != NULL) {
+      err = guest_to(*data_ea, data, min(len, len_in), 1);
+      ON_ERROR("data", err, done);
+    }
   }
 
  done:
@@ -582,16 +603,15 @@ rom_getprop(gea_t cia,
 
   node = rom_node_offset_by_phandle(phandle);
   if (node < 0) {
-    err = ERR_NOT_FOUND;
     WARN("looking up '%s' in unknown phandle 0x%x",
          p, phandle);
-    goto done;
-  }
-
-  err = rom_getprop_ex(node, p, len_in,
-                       &data_ea, &len_out);
-  if (err != ERR_NONE) {
-    goto done;
+    len_out = -1;
+  } else {
+    err = rom_getprop_ex(node, p, len_in,
+                         &data_ea, &len_out);
+    if (err != ERR_NONE) {
+      goto done;
+    }
   }
 
   err = guest_to_x(CIA_ARG(4), &len_out);
@@ -625,13 +645,13 @@ rom_getproplen(gea_t cia,
   if (node < 0) {
     err = ERR_NOT_FOUND;
     WARN("looking up unknown phandle 0x%x", phandle);
-    goto done;
-  }
-
-  err = rom_getprop_ex(node, p, 0,
-                       NULL, &len_out);
-  if (err != ERR_NONE) {
-    goto done;
+    len_out = -1;
+  } else {
+    err = rom_getprop_ex(node, p, 0,
+                         NULL, &len_out);
+    if (err != ERR_NONE) {
+      goto done;
+    }
   }
 
   err = guest_to_x(CIA_ARG(2), &len_out);
@@ -737,15 +757,18 @@ rom_parent(gea_t cia,
   node = rom_node_offset_by_phandle(ph);
   if (node < 0) {
     WARN("looking up unknown phandle 0x%x", ph);
+    /*
+     * Return -1. It's a nonsense value, but the
+     * IEEE-1275 document doesn't cover invalid
+     * phandles being passed.
+     */
+    ph_parent = -1;
     goto done;
   }
 
   node = fdt_parent_offset(fdt, node);
-  if (node < 0) {
-    goto done;
-  } else {
-    ph_parent = rom_get_phandle(node);
-  }
+  BUG_ON(node < 0, "couldn't find parent");
+  ph_parent = rom_get_phandle(node);
 
  done:
   err = guest_to_x(CIA_ARG(1), &ph_parent);
@@ -872,15 +895,20 @@ rom_read(gea_t cia,
   cell_t len_out;
 
   err = guest_from_x(&ihandle, CIA_ARG(0));
-  ON_ERROR("ihandle", err, done);
+  ON_ERROR("ihandle", err, access_fail);
 
   err = guest_from_x(&data_ea, CIA_ARG(1));
-  ON_ERROR("data ea", err, done);
+  ON_ERROR("data ea", err, access_fail);
 
   err = guest_from_x(&len_in, CIA_ARG(2));
-  ON_ERROR("data ea", err, done);
-  len_out = len_in;
+  ON_ERROR("data ea", err, access_fail );
 
+  if (ihandle != console_ihandle) {
+    len_out = -1;
+    goto done;
+  }
+
+  len_out = len_in;
   do {
     length_t xferred;
     length_t xfer = min(len_in, sizeof(xfer_buf));
@@ -906,11 +934,13 @@ rom_read(gea_t cia,
 
   if (err == ERR_NONE) {
     len_out -= len_in;
-    err = guest_to_x(CIA_ARG(3), &len_out);
-    ON_ERROR("len_out", err, done);
   }
 
  done:
+  err = guest_to_x(CIA_ARG(3), &len_out);
+  ON_ERROR("len_out", err, access_fail);
+
+ access_fail:
   return err;
 }
 
@@ -950,13 +980,18 @@ rom_write(gea_t cia,
   cell_t len_out;
 
   err = guest_from_x(&ihandle, CIA_ARG(0));
-  ON_ERROR("ihandle", err, done);
+  ON_ERROR("ihandle", err, access_fail);
 
   err = guest_from_x(&data_ea, CIA_ARG(1));
-  ON_ERROR("data ea", err, done);
+  ON_ERROR("data ea", err, access_fail);
 
   err = guest_from_x(&len_in, CIA_ARG(2));
-  ON_ERROR("data ea", err, done);
+  ON_ERROR("data ea", err, access_fail);
+
+  if (ihandle != console_ihandle) {
+    len_out = -1;
+    goto done;
+  }
 
   len_out = len_in;
   do {
@@ -978,11 +1013,13 @@ rom_write(gea_t cia,
 
   if (err == ERR_NONE) {
     len_out -= len_in;
-    err = guest_to_x(CIA_ARG(3), &len_out);
-    ON_ERROR("len_out", err, done);
   }
 
  done:
+  err = guest_to_x(CIA_ARG(3), &len_out);
+  ON_ERROR("len_out", err, done);
+
+ access_fail:
   return err;
 }
 

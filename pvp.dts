@@ -163,5 +163,6 @@
 	aliases {
 		mem = "/memory";
 		mmu = "/cpus/cpu";
+		con = "/pci/isa/serial";
 	};
 };
