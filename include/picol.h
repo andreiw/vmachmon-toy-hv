@@ -364,7 +364,7 @@ typedef struct picolArray {
 #define picolEval(_i, _t)              picolEval2(_i, _t, 1)
 #define picolGetGlobalVar(_i, _n)      picolGetVar2(_i, _n, 1)
 #define picolGetVar(_i, _n)            picolGetVar2(_i, _n, 0)
-#define picolSetBoolResult(_i, x)      picolSetFmtResult(_i, "%d", !!x)
+#define picolSetBoolResult(_i, x)      picolSetFmtResult(_i, _i->int_base_16 ? "0x%x" : "%d", !!x)
 #define picolSetGlobalVar(_i, _n, _v)  picolSetVar2(_i, _n, _v, 1)
 #define picolSetIntResult(_i, x)       picolSetFmtResult(_i, _i->int_base_16 ? "0x%x" : "%d", x)
 #define picolSetVar(_i, _n, _v)        picolSetVar2(_i, _n, _v, 0)

@@ -17,12 +17,12 @@ proc cif_dump {} {
      puts "Service: "$service
      puts "Argument array: "$cia
      puts "In: "$in\ Out:\ $out
-     for {set i 0} {$i < $in} {incr i} {
+     for {set i 0x0} {$i < $in} {incr i} {
          set addr [+ $cia [* 4 [+ $i 3]]]
          set val [mr32 $addr]
          puts "Arg"$i\ ($addr):\ $val
      }
-     for {set i 0} {$i < $out} {incr i} {
+     for {set i 0x0} {$i < $out} {incr i} {
          set n [+ $in 3]
          set addr [+ $cia [* 4 [+ $i $n]]]
          set val [mr32 $addr]

@@ -62,7 +62,7 @@ void _log(unsigned level, unsigned log_lvl, unsigned error_extra,
 
 #define BUG_ON(x, fmt, ...) do {                                        \
     if ((x)) {                                                          \
-      FATAL(ERR_ASSERT, LOG_FL_S "%s - " fmt, __FILE__, __LINE__, SIFY(x), ## __VA_ARGS__); \
+      FATAL(ERR_ASSERT, LOG_FL_S "%s -> " fmt, __FILE__, __LINE__, SIFY(x), ## __VA_ARGS__); \
       abort();                                                          \
     }                                                                   \
   } while(0);

@@ -76,6 +76,11 @@ typedef struct ihandle_header {
   ihandle_methods_t methods;
 } ihandle_header_t;
 
+typedef struct ihandle_file {
+  ihandle_header_t header;
+  int fd;
+} ihandle_file_t;
+
 typedef struct {
   err_t (*handler)(gea_t cia, count_t cia_in,
                    count_t cia_out);
@@ -151,6 +156,95 @@ rom_wrap_ihandle_with_methods(ihandle_t t,
   h->methods.seek = seek;
   h->methods.close = close;
   list_add_tail(&h->link, &known_ihandles);
+  return ERR_NONE;
+}
+
+static err_t
+rom_file_seek(ihandle_methods_t *im,
+              offset_t offset)
+{
+  int ret;
+  ihandle_header_t *h = container_of(im, ihandle_header_t, methods);
+  ihandle_file_t *f = container_of(h, ihandle_file_t, header);
+
+  ret = lseek(f->fd, offset, SEEK_SET);
+  if (ret < 0) {
+    return ERR_POSIX;
+  }
+
+  return ERR_NONE;
+}
+
+static count_t
+rom_file_read(ihandle_methods_t *im,
+              uint8_t *s,
+              count_t len)
+{
+  int ret;
+  ihandle_header_t *h = container_of(im, ihandle_header_t, methods);
+  ihandle_file_t *f = container_of(h, ihandle_file_t, header);
+
+  ret = read(f->fd, s, len);
+  if (ret < 0) {
+    ret = 0;
+  }
+
+  return ret;
+}
+
+static count_t
+rom_file_write(ihandle_methods_t *im,
+               const uint8_t *s,
+               count_t len)
+{
+  int ret;
+  ihandle_header_t *h = container_of(im, ihandle_header_t, methods);
+  ihandle_file_t *f = container_of(h, ihandle_file_t, header);
+
+  ret = write(f->fd, s, len);
+  if (ret < 0) {
+    ret = 0;
+  }
+
+  return ret;
+}
+
+static void
+rom_file_close(struct ihandle_methods *im)
+{
+  ihandle_header_t *h = container_of(im, ihandle_header_t, methods);
+  ihandle_file_t *f = container_of(h, ihandle_file_t, header);
+
+  close(f->fd);
+  list_del(&h->link);
+  free(f);
+}
+
+static err_t
+rom_ihandle_from_file(const char *path,
+                      ihandle_t *ihandle)
+{
+  int fd;
+  ihandle_file_t *f;
+
+  fd = open(path, O_RDWR);
+  if (fd < 0) {
+    return ERR_POSIX;
+  }
+
+  f = malloc(sizeof(ihandle_file_t));
+  if (f == NULL) {
+    return ERR_NO_MEM;
+  }
+
+  f->header.value = (ihandle_t) f;
+  f->header.methods.write = rom_file_write;
+  f->header.methods.read = rom_file_read;
+  f->header.methods.seek = rom_file_seek;
+  f->header.methods.close = rom_file_close;
+  f->fd = fd;
+  list_add_tail(&f->header.link, &known_ihandles);
+  *ihandle = f->header.value;
   return ERR_NONE;
 }
 
@@ -327,14 +421,18 @@ rom_mmu_call(gea_t cia,
     return ERR_BAD_ACCESS;
   }
 
-  ha = pmem_ha(phys);
+  BUG_ON((phys & PAGE_MASK) != 0, "bad alignment");
+  BUG_ON((virt & PAGE_MASK) != 0, "bad alignment");
+
+  size = ALIGN(size, PAGE_SIZE);
   while (size != 0) {
+    ha = pmem_ha(phys);
     err = guest_map(ha, virt);
     if (err != ERR_NONE) {
       break;
     }
 
-    ha += PAGE_SIZE;
+    phys += PAGE_SIZE;
     virt += PAGE_SIZE;
     size -= PAGE_SIZE;
   }
@@ -1043,6 +1141,112 @@ rom_finddevice(gea_t cia,
 }
 
 static err_t
+rom_open(gea_t cia,
+         count_t cia_in,
+         count_t cia_out)
+{
+  err_t err;
+  gea_t path_ea;
+  /*
+   * 0 on failure;
+   */
+  char *f;
+  ihandle_t ihandle = 0;
+  char *d = (char *) xfer_buf;
+
+  err = guest_from_x(&path_ea, CIA_ARG(0));
+  ON_ERROR("path", err, access_fail);
+
+  d[guest_from_ex(d, path_ea, sizeof(xfer_buf), 1, true)] = '\0';
+  f = strchr(d, ',');
+  if (f == NULL) {
+    goto done;
+  }
+  f++;
+
+  err = rom_ihandle_from_file(f, &ihandle);
+  if (err != ERR_NONE) {
+    ERROR(err, "couldn't open '%s'", d);
+  }
+ done:
+
+  err = guest_to_x(CIA_RET(0), &ihandle);
+  ON_ERROR("ihandle", err, access_fail);
+
+ access_fail:
+  return err;
+}
+
+static err_t
+rom_close(gea_t cia,
+          count_t cia_in,
+          count_t cia_out)
+{
+  err_t err;
+  cell_t result;
+  ihandle_t ihandle;
+  ihandle_methods_t *methods;
+
+  err = guest_from_x(&ihandle, CIA_ARG(0));
+  ON_ERROR("ihandle", err, done);
+
+  methods = rom_methods_by_ihandle(ihandle);
+  if (methods == NULL ||
+      methods->close == NULL) {
+    result = -1;
+    goto done;
+  }
+
+  methods->close(methods);
+
+ done:
+  return err;
+}
+
+static err_t
+rom_seek(gea_t cia,
+         count_t cia_in,
+         count_t cia_out)
+{
+  err_t err;
+  cell_t result;
+  cell_t off_lo;
+  cell_t off_hi;
+  ihandle_t ihandle;
+  ihandle_methods_t *methods;
+
+  err = guest_from_x(&ihandle, CIA_ARG(0));
+  ON_ERROR("ihandle", err, access_fail);
+
+  err = guest_from_x(&off_hi, CIA_ARG(1));
+  ON_ERROR("off_hi", err, access_fail);
+
+  err = guest_from_x(&off_lo, CIA_ARG(2));
+  ON_ERROR("off_lo", err, access_fail);
+
+  BUG_ON(off_hi != 0, "off_hi is 0x%x", off_hi);
+
+  methods = rom_methods_by_ihandle(ihandle);
+  if (methods == NULL ||
+      methods->seek == NULL) {
+    result = -1;
+    goto done;
+  }
+
+  if (methods->seek(methods, off_lo) == ERR_NONE) {
+    result = 0;
+  }
+
+ done:
+  err = guest_to_x(CIA_RET(0), &result);
+  ON_ERROR("result", err, access_fail);
+
+ access_fail:
+  return err;
+}
+
+
+static err_t
 rom_read(gea_t cia,
          count_t cia_in,
          count_t cia_out)
@@ -1064,21 +1268,19 @@ rom_read(gea_t cia,
   ON_ERROR("data ea", err, access_fail );
 
   methods = rom_methods_by_ihandle(ihandle);
-  if (methods != NULL) {
-    if (methods->read == NULL) {
-      len_out = -1;
-      goto done;
-    }
-  } else {
+  if (methods == NULL ||
+      methods->read == NULL) {
     len_out = -1;
     goto done;
   }
 
   len_out = len_in;
-  do {
+  while (len_in != 0) {
     length_t xferred;
-    length_t xfer = min(len_in, sizeof(xfer_buf));
+    length_t xfer = min(len_in, (PAGE_SIZE - (data_ea & PAGE_MASK)));
+    xfer = min(xfer, sizeof(xfer_buf));
 
+    BUG_ON(PFN(data_ea) != PFN(data_ea + xfer - 1), "bad len");
     xferred = methods->read(methods, xfer_buf, xfer);
 
     err = guest_to(data_ea, xfer_buf, xferred, 1);
@@ -1091,7 +1293,7 @@ rom_read(gea_t cia,
     }
 
     data_ea += xfer;
-  } while (len_in != 0);
+  };
 
  partial:
   if (err == ERR_BAD_ACCESS || err == ERR_NOT_READY) {
@@ -1132,24 +1334,22 @@ rom_write(gea_t cia,
   ON_ERROR("data ea", err, access_fail);
 
   methods = rom_methods_by_ihandle(ihandle);
-  if (methods != NULL) {
-    if (methods->write == NULL) {
-      len_out = -1;
-      goto done;
-    }
-  } else {
+  if (methods == NULL ||
+      methods->read == NULL) {
     len_out = -1;
     goto done;
   }
 
   len_out = len_in;
-  do {
+  while (len_in != 0) {
     length_t xferred;
-    length_t xfer = min(len_in, sizeof(xfer_buf));
+    length_t xfer = min(len_in, (PAGE_SIZE - (data_ea & PAGE_MASK)));
+    xfer = min(xfer, sizeof(xfer_buf));
 
     err = guest_from(xfer_buf, data_ea, xfer, 1);
     ON_ERROR("data", err, partial);
 
+    BUG_ON(PFN(data_ea) != PFN(data_ea + xfer - 1), "bad len");
     xferred = methods->write(methods, xfer_buf, xfer);
 
     len_in -= xferred;
@@ -1159,7 +1359,7 @@ rom_write(gea_t cia,
     }
 
     data_ea += xfer;
-  } while (len_in != 0);
+  };
 
  partial:
   if (err == ERR_BAD_ACCESS || err == ERR_NOT_READY) {
@@ -1195,6 +1395,9 @@ cif_handler_t handlers[] = {
   { rom_finddevice, "finddevice" },
   { rom_getprop, "getprop" },
   { rom_getproplen, "getproplen" },
+  { rom_open, "open" },
+  { rom_seek, "seek" },
+  { rom_close, "close" },
   { rom_write, "write" },
   { rom_read, "read" },
   { rom_claim, "claim" },

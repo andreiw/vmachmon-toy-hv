@@ -43,6 +43,7 @@
 #define MB(x) (1U * x * 1024 * 1024)
 #define GB(x) (1U * x * 1024 * 1024 * 1024)
 #define TB(x) (1U * x * 1024 * 1024 * 1024 * 1024)
+#define PFN(page) (((uintptr_t) page) >> 12)
 
 #define likely(x)     (__builtin_constant_p(x) ? !!(x) : __builtin_expect(!!(x), 1))
 #define unlikely(x)   (__builtin_constant_p(x) ? !!(x) : __builtin_expect(!!(x), 0))

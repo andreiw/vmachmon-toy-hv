@@ -58,6 +58,11 @@ guest_map(ha_t host_address, gea_t ea)
 
   vmm_ret = vmm_call(kVmmMapPage, guest->vmm_index,
                      host_address, ea, VM_PROT_ALL);
+
+  /*
+   * Apparently (looking at the sources) this is a
+   * kern_err_t...
+   */
   ON_VMM_ERROR("kVmmMapPage", vmm_ret, out);
  out:
   if (vmm_ret != kVmmReturnNull) {
@@ -184,11 +189,12 @@ guest_to(gea_t dest,
       break;
     }
 
-    xferred = pmem_to(dest, s, xfer_size, access_size);
+    xferred = pmem_to(gra, s, xfer_size, access_size);
     left -= xferred;
 
     if (xferred != xfer_size) {
-      WARN("unexpected truncated transfer, %u left", left);
+      WARN("unexpected truncated transfer to EA 0x%x GRA 0x%x, %u left",
+           dest, gra, left);
       break;
     }
 
