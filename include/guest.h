@@ -14,10 +14,15 @@ typedef struct guest_t {
   uint32_t pvr;
   uint32_t srr0;
   uint32_t srr1;
-  uint32_t ibat[8];
-  uint32_t dbat[8];
   uint32_t sr[16];
   uint32_t hid0;
+  uint32_t msr;
+  /*
+   * Bits the VMM may force on transparent of the guest state.
+   * This could be tracing (single-stepping, branch trace) or
+   * performance counters.
+   */
+  uint32_t mon_msr;
   vmm_state_page_t *vmm;
   vmm_thread_index_t vmm_index;
   vmm_regs32_t *regs;

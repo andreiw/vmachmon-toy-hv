@@ -2,10 +2,20 @@
 
 #define PPC_BITS(x) (1UL << (31 - x))
 
-#define MSR_SE PPC_BITS(21) /* Single Step */
-#define MSR_IR PPC_BITS(26) /* Instruction Relocate */
-#define MSR_DR PPC_BITS(27) /* Data Relocate */
-#define MSR_LE PPC_BITS(31) /* Little Endian */
+#define MSR_EE  PPC_BITS(16)  /* Extern Interrupts */
+#define MSR_PR  PPC_BITS(17)  /* Privilege */
+#define MSR_FP  PPC_BITS(18)  /* FP */
+#define MSR_ME  PPC_BITS(19)  /* Machine Check */
+#define MSR_FE0 PPC_BITS(20)  /* FP Exception Mode 0 */
+#define MSR_SE  PPC_BITS(21)  /* Single Step */
+#define MSR_FE1 PPC_BITS(23)  /* FP Exception Mode 1 */
+#define MSR_EP  PPC_BITS(25)  /* Exception Prefix */
+#define MSR_IR  PPC_BITS(26)  /* Instruction Relocate */
+#define MSR_DR  PPC_BITS(27)  /* Data Relocate */
+#define MSR_LE  PPC_BITS(31)  /* Little Endian (not 601) */
+
+#define HID0_601_RESET_VALUE 0x80010080
+#define HID0_601_LM PPC_BITS(28)
 
 #define DSISR_NOT_PRESENT PPC_BITS(1)
 #define DSISR_BAD_PERM    PPC_BITS(4)

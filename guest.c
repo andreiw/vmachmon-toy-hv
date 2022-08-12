@@ -6,11 +6,30 @@
 
 guest_t *guest = & (guest_t) { 0 };
 
+static void
+guest_set_msr(uint32_t msr)
+{
+  guest->msr = msr;
+  /*
+   * The VMM will set/clear bits as necessary,
+   * as we only get to control VEC, FP, FE0, FE1, SE, BE, PM and LE.
+   *
+   * So we can be lazy.
+   *
+   * The VMM will leak the actual MSR when returning. For
+   * example, it always sets IR, DR, EE, ME and PR.
+   *
+   * This is useful for debugging.
+   */
+  guest->regs->ppcMSR = msr | guest->mon_msr;
+}
+
 err_t
 guest_init(bool little, length_t ram_size)
 {
   int i;
   err_t err;
+  uint32_t guest_msr;
 
   err = vmm_init(&(guest->vmm));
   if (err != ERR_NONE) {
@@ -38,12 +57,33 @@ guest_init(bool little, length_t ram_size)
     guest->sr[i] = (i << SR_VSID_SHIFT);
   }
 
-  guest->regs->ppcMSR |= MSR_IR | MSR_DR;
-  guest->mmu_state = MMU_PSEUDO_ON;
+  /*
+   * The only 601 register with a non-trivial
+   * reset value.
+   */
+  guest->hid0 = HID0_601_RESET_VALUE;
 
+  /*
+   * 601 doc says EP and ME are set on hard reset.
+   */
+  guest_msr = MSR_ME | MSR_EP;
+  guest->mon_msr = 0;
   if (little) {
-    guest->regs->ppcMSR |= MSR_LE;
+    /*
+     * Not into guest_msr, as LE exposed differently
+     * on a 601.
+     */
+    guest->mon_msr |= MSR_LE;
+    guest->hid0 |= HID0_601_LM;
   }
+  /*
+   * rom.c emulates OF with MMU, without bothering
+   * with HTAB. Maybe this will go away when the
+   * HTAB emulation is done.
+   */
+  guest_msr |= MSR_IR | MSR_DR;
+  guest->mmu_state = MMU_PSEUDO_ON;
+  guest_set_msr(guest_msr);
 
   return ERR_NONE;
 }
@@ -96,7 +136,7 @@ guest_backmap(gea_t ea, gra_t *gra)
 bool
 guest_is_little(void)
 {
-  return (guest->regs->ppcMSR & MSR_LE) != 0;
+  return (guest->mon_msr & MSR_LE) != 0;
 }
 
 bool
@@ -108,12 +148,9 @@ guest_mmu_allow_ra(void)
 bool
 guest_toggle_ss(void)
 {
-  /*
-   * This logic becomes more complex when
-   * guest MSR access is emulated.
-   */
-  guest->regs->ppcMSR ^= MSR_SE;
-  return (guest->regs->ppcMSR & MSR_SE) != 0;
+  guest->mon_msr ^= MSR_SE;
+  guest_set_msr(guest->msr);
+  return (guest->mon_msr & MSR_SE) != 0;
 }
 
 length_t
@@ -235,6 +272,10 @@ guest_emulate(void)
            guest->regs->ppcPC, reg, spr);
       return ERR_UNSUPPORTED;
     }
+  } else if ((insn & INST_MFMSR_MASK) == INST_MFMSR) {
+    int reg = MASK_OFF(insn, 25, 21);
+    R(reg) = guest->msr;
+    err = ERR_NONE;
   }
 
  done:
