@@ -7,9 +7,37 @@
 guest_t *guest = & (guest_t) { 0 };
 
 static void
+guest_set_vmm(bool mmu_on)
+{
+  vmm_state_page_t *cur = guest->vmm;
+  vmm_state_page_t *next = mmu_on ?
+    guest->vmm_mmu_on :
+    guest->vmm_mmu_off;
+  vmm_regs32_t *next_regs =
+    &(next->vmm_proc_state.ppcRegs.ppcRegs32);
+
+  if (cur == next) {
+    return;
+  }
+
+  if (cur != NULL) {
+    next->vmm_proc_state = cur->vmm_proc_state;
+  }
+
+  guest->vmm = next;
+  guest->regs = next_regs;
+
+}
+
+static void
 guest_set_msr(uint32_t msr)
 {
-  guest->msr = msr;
+  bool ir = (msr & MSR_IR) != 0;
+  bool dr = (msr & MSR_DR) != 0;
+
+  BUG_ON((ir ^ dr) != 0, "inconsistent IR/DR");
+  guest_set_vmm(ir | dr);
+
   /*
    * The VMM will set/clear bits as necessary,
    * as we only get to control VEC, FP, FE0, FE1, SE, BE, PM and LE.
@@ -22,6 +50,24 @@ guest_set_msr(uint32_t msr)
    * This is useful for debugging.
    */
   guest->regs->ppcMSR = msr | guest->mon_msr;
+  guest->msr = msr;
+}
+
+void
+guest_bye(void)
+{
+  kern_return_t kr;
+
+  kr = vmm_call(kVmmTearDownContext,
+                guest->vmm_mmu_on->thread_index);
+  ON_MACH_ERROR("kVmmTearDownContext vmm_mmu_on", kr, done);
+
+  kr = vmm_call(kVmmTearDownContext,
+                guest->vmm_mmu_off->thread_index);
+  ON_MACH_ERROR("kVmmTearDownContext vmm_mmu_on", kr, done);
+
+ done:
+  return;
 }
 
 err_t
@@ -31,28 +77,19 @@ guest_init(bool little, length_t ram_size)
   err_t err;
   uint32_t guest_msr;
 
-  err = vmm_init(&(guest->vmm));
-  if (err != ERR_NONE) {
-    ERROR(err, "vmm_init");
-    return err;
-  }
+  err = vmm_init();
+  ON_ERROR("vmm_init", err, done);
 
-  guest->vmm_index = guest->vmm->thread_index;
-  guest->regs = &(guest->vmm->vmm_proc_state.ppcRegs.ppcRegs32);
+  err = vmm_init_vm(&(guest->vmm_mmu_off));
+  ON_ERROR("vmm_init_vm mmu_off", err, done);
+
+  err = vmm_init_vm(&(guest->vmm_mmu_on));
+  ON_ERROR("vmm_init_vm mmu_on", err, done);
 
   err = pmem_init(ram_size);
-  if (err != ERR_NONE) {
-    ERROR(err, "pmem_init");
-    return err;
-  }
+  ON_ERROR("pmem_init", err, done);
 
-  guest->pvr = 0x00010001; /* 601  - YES!   */
-  // guest->pvr = 0x00030001; /* 603  - YES!   */
-  // guest->pvr = 0x00040103; /* 604  - YES!   */
-  // guest->pvr = 0x00090204; /* 604e - YES!   */
-  // guest->pvr = 0x00080200; /* G3   - YES!!! */
-  // guest->pvr = 0x000c0200; /* G4   - NOPE.  */
-
+  guest->pvr = PVR_601;
   for (i = 0; i < ARRAY_LEN(guest->sr); i++) {
     guest->sr[i] = (i << SR_VSID_SHIFT);
   }
@@ -82,10 +119,10 @@ guest_init(bool little, length_t ram_size)
    * HTAB emulation is done.
    */
   guest_msr |= MSR_IR | MSR_DR;
-  guest->mmu_state = MMU_PSEUDO_ON;
   guest_set_msr(guest_msr);
 
-  return ERR_NONE;
+ done:
+  return err;
 }
 
 err_t
@@ -96,7 +133,7 @@ guest_map(ha_t host_address, gea_t ea)
   BUG_ON((host_address & PAGE_MASK) != 0, "bad alignment");
   BUG_ON((ea & PAGE_MASK) != 0, "bad alignment");
 
-  vmm_ret = vmm_call(kVmmMapPage, guest->vmm_index,
+  vmm_ret = vmm_call(kVmmMapPage, guest->vmm->thread_index,
                      host_address, ea, VM_PROT_ALL);
 
   /*
@@ -118,14 +155,13 @@ guest_backmap(gea_t ea, gra_t *gra)
   ha_t ha_base;
   gea_t offset = ea & PAGE_MASK;
 
-  if (guest_mmu_allow_ra()) {
-    if (pmem_gra_valid(ea)) {
-      *gra = ea;
-      return ERR_NONE;
-    }
+  if (pmem_gra_valid(ea)) {
+    *gra = ea;
+    return ERR_NONE;
   }
 
-  ha_base = vmm_call(kVmmGetPageMapping, guest->vmm_index, ea);
+  ha_base = vmm_call(kVmmGetPageMapping,
+                     guest->vmm->thread_index, ea);
   if (ha_base == (ha_t) -1) {
     return ERR_NOT_FOUND;
   }
@@ -137,12 +173,6 @@ bool
 guest_is_little(void)
 {
   return (guest->mon_msr & MSR_LE) != 0;
-}
-
-bool
-guest_mmu_allow_ra(void)
-{
-  return guest->mmu_state != MMU_ON;
 }
 
 bool

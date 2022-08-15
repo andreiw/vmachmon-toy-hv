@@ -7,6 +7,7 @@ static length_t pmem_bytes;
 
 ha_t pmem_ha(gra_t ra)
 {
+  BUG_ON(ra >= pmem_bytes, "bad ra");
   return pmem + ra;
 }
 

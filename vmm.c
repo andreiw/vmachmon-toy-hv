@@ -12,7 +12,8 @@
 // it to the stub available in the C library.
 //
 vmm_dispatch_func_t vmm_call;
-   
+static vmm_version_t vmm_version;
+
 // Convenience data structure for pretty-printing Vmm features
 struct VmmFeature {
   int32_t  mask;
@@ -51,20 +52,15 @@ vmm_return_code_to_string(vmm_return_code_t code)
 }
 
 err_t
-vmm_init(vmm_state_page_t **vm_state)
+vmm_init(void)
 {
   int i;
-  vmm_version_t version;
   vmm_features_t features;
-  kern_return_t kr;
-  mach_port_t mt;
-  ha_t vmmUStatePage = 0;
-  vmm_state_page_t *vmmUState = NULL; // It's a vmm_comm_page_t too
 
   vmm_call = (vmm_dispatch_func_t) vmm_dispatch;
-  version = vmm_call(kVmmGetVersion);
+  vmm_version = vmm_call(kVmmGetVersion);
   LOG("Mac OS X virtual machine monitor (version %lu.%lu)",
-      (version >> 16), (version & 0xFFFF));
+      (vmm_version >> 16), (vmm_version & 0xFFFF));
    
   features = vmm_call(kVmmvGetFeatures);
   DEBUG("Vmm features:");
@@ -74,6 +70,17 @@ vmm_init(vmm_state_page_t **vm_state)
   }
 
   DEBUG("Page size is %u bytes", vm_page_size);
+  return ERR_NONE;
+}
+
+err_t
+vmm_init_vm(vmm_state_page_t **vm_state)
+{
+  kern_return_t kr;
+  mach_port_t mt;
+  ha_t vmmUStatePage = 0;
+  vmm_state_page_t *vmmUState = NULL; // It's a vmm_comm_page_t too
+
   mt = mach_task_self();
 
   // VM user state
@@ -82,7 +89,7 @@ vmm_init(vmm_state_page_t **vm_state)
   vmmUState = (vmm_state_page_t *)vmmUStatePage;
 
   // Initialize a new virtual machine context
-  kr = vmm_call(kVmmInitContext, version, vmmUState);
+  kr = vmm_call(kVmmInitContext, vmm_version, vmmUState);
   ON_MACH_ERROR("kVmmInitContext", kr, out);
 
   kr = vmm_call(kVmmActivateXA, vmmUState->thread_index, vmmGSA);

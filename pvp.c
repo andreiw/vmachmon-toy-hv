@@ -47,8 +47,6 @@ usage(int argc, char **argv)
 int
 main(int argc, char **argv)
 {
-  kern_return_t kr;
-  unsigned long *return_params32;
   err_t err;
 
   usage(argc, argv);
@@ -65,10 +63,12 @@ main(int argc, char **argv)
   err = mon_init();
   ON_ERROR("mon_init", err, out);
    
-  LOG("Switching to guest virtual machine");
+  LOG("Switching to guest virtual machine TI 0x%x",
+      guest->vmm->thread_index);
   while (1) {
     vmm_return_code_t vmm_ret;
-    vmm_ret = vmm_call(kVmmExecuteVM, guest->vmm_index);
+
+    vmm_ret = vmm_call(kVmmExecuteVM, guest->vmm->thread_index);
     switch (vmm_ret) {
     case kVmmReturnNull:
       break;
@@ -79,15 +79,15 @@ main(int argc, char **argv)
     case kVmmReturnDataPageFault:
     case kVmmReturnInstrPageFault:
       {
-        uint32_t address;
         uint32_t dsisr;
+        uint32_t address;
+        unsigned long *return_params32;
 
         return_params32 = guest->vmm->vmmRet.vmmrp32.return_params;
         address = return_params32[0] & ~PAGE_MASK;
         dsisr = return_params32[1];
 
-        if (guest_mmu_allow_ra() &&
-            pmem_gra_valid(address) &&
+        if (pmem_gra_valid(address) &&
             (dsisr & DSISR_NOT_PRESENT) != 0) {
           err = guest_map(pmem_ha(address), address);
           ON_ERROR("guest_map", err, unhandled);
@@ -153,13 +153,14 @@ main(int argc, char **argv)
  stop:
 
   LOG("Requested VM stop");
-  kr = vmm_call(kVmmTearDownContext, guest->vmm_index);
-  ON_MACH_ERROR("vmm_init_context", kr, out);
-  VERBOSE("Virtual machine context torn down");
-
+  guest_bye();
   term_bye();
   mon_bye();
 
 out:
-  exit(kr);
+  if (err == ERR_NONE) {
+    return 0;
+  }
+
+  return 1;
 }

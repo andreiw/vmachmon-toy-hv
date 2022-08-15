@@ -21,7 +21,8 @@ typedef int facility_context; // kludge #1
 #include "vmachmon.h"         // kludge #2
 #endif
 
-err_t vmm_init(vmm_state_page_t **vm_state);
+err_t vmm_init(void);
+err_t vmm_init_vm(vmm_state_page_t **vm_state);
 const char *vmm_return_code_to_string(vmm_return_code_t code);
 typedef int (* vmm_dispatch_func_t)(int, ...);
 extern vmm_dispatch_func_t vmm_call;

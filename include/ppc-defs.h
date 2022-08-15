@@ -17,6 +17,13 @@
 #define HID0_601_RESET_VALUE 0x80010080
 #define HID0_601_LM PPC_BITS(28)
 
+#define PVR_601  0x00010001
+#define PVR_603  0x00030001
+#define PVR_604  0x00040103
+#define PVR_604e 0x00090204
+#define PVR_G3   0x00080200
+#define PVR_G4   0x000c0200 /* Not supported by NT */
+
 #define DSISR_NOT_PRESENT PPC_BITS(1)
 #define DSISR_BAD_PERM    PPC_BITS(4)
 #define DSISR_STORE       PPC_BITS(6)
