@@ -3,6 +3,7 @@
 #include "pmem.h"
 #include "vmm.h"
 #include "ppc-defs.h"
+#include "rom.h"
 
 guest_t *guest = & (guest_t) { 0 };
 
@@ -115,12 +116,15 @@ guest_init(bool little, length_t ram_size)
   }
   /*
    * rom.c emulates OF with MMU, without bothering
-   * with HTAB. Maybe this will go away when the
-   * HTAB emulation is done.
+   * with HTAB. Instead, a magic value of SDR1 tells
+   * guest_fault/guest_map to use rom_fault. When
+   * SDR1 is SDR1_MAGIC_ROM_MODE, BAT/SR/HTAB-based
+   * translation is not used (note: when adding BAT
+   * support, honor BAT translations as well).
    */
-  guest_msr |= MSR_IR | MSR_DR;
+  guest->sdr1 = SDR1_MAGIC_ROM_MODE;
+  guest_msr |= MSR_MMU_ON;
   guest_set_msr(guest_msr);
-
  done:
   return err;
 }
@@ -147,26 +151,6 @@ guest_map(ha_t host_address, gea_t ea)
   }
 
   return ERR_NONE;
-}
-
-err_t
-guest_backmap(gea_t ea, gra_t *gra)
-{
-  ha_t ha_base;
-  gea_t offset = ea & PAGE_MASK;
-
-  if (pmem_gra_valid(ea)) {
-    *gra = ea;
-    return ERR_NONE;
-  }
-
-  ha_base = vmm_call(kVmmGetPageMapping,
-                     guest->vmm->thread_index, ea);
-  if (ha_base == (ha_t) -1) {
-    return ERR_NOT_FOUND;
-  }
-
-  return pmem_gra(ha_base + offset, gra);
 }
 
 bool
@@ -274,6 +258,80 @@ guest_to(gea_t dest,
   }
 
   return ERR_NONE;
+}
+
+static err_t
+guest_backmap_ex(gea_t ea, gra_t *gra, bool try_fast)
+{
+  ha_t ha_base;
+  gea_t offset = ea & PAGE_MASK;
+
+  if ((guest->msr & MSR_MMU_ON) != MSR_MMU_ON) {
+    if (pmem_gra_valid(ea)) {
+      *gra = ea;
+      return ERR_NONE;
+    }
+
+    return ERR_NOT_FOUND;
+  }
+
+  if (try_fast) {
+    /*
+     * This is a fast-path. The mapping may have not
+     * been made yet with the VMM (via guest_fault) or
+     * may have gotten evicted.
+     */
+    ha_base = vmm_call(kVmmGetPageMapping,
+                       guest->vmm->thread_index, ea);
+    if (ha_base != (ha_t) -1) {
+      pmem_gra(ha_base + offset, gra);
+      return ERR_NONE;
+    }
+  }
+
+  if (guest->sdr1 == SDR1_MAGIC_ROM_MODE) {
+    return rom_fault(ea, gra);
+  }
+
+  return ERR_NOT_FOUND;
+}
+
+err_t
+guest_backmap(gea_t ea, gra_t *gra)
+{
+  return guest_backmap_ex(ea, gra, true);
+}
+
+err_t
+guest_fault(void)
+{
+  gea_t gea;
+  gra_t gra;
+  err_t err;
+  uint32_t dsisr;
+  unsigned long *return_params32;
+
+  return_params32 = guest->vmm->vmmRet.vmmrp32.return_params;
+  gea = return_params32[0] & ~PAGE_MASK;
+  dsisr = return_params32[1];
+
+  if ((dsisr & DSISR_NOT_PRESENT) != 0) {
+    err = guest_backmap_ex(gea, &gra, false);
+    if (err != ERR_NONE) {
+      ERROR(err, "guest_backmap_ex");
+      return err;
+    }
+
+    err = guest_map(pmem_ha(gra), gea);
+    if (err != ERR_NONE) {
+      ERROR(err, "guest_map");
+      return err;
+    }
+
+    return ERR_NONE;
+  }
+
+  return ERR_UNSUPPORTED;
 }
 
 err_t

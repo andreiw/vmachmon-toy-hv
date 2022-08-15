@@ -9,6 +9,7 @@
 #include "guest.h"
 #include "rom.h"
 #include "ranges.h"
+#include "mmu_ranges.h"
 #include "pmem.h"
 #include "libfdt.h"
 #include "term.h"
@@ -45,6 +46,7 @@ static ihandle_t mmu_ihandle;
 static ihandle_t memory_ihandle;
 static ranges_t guest_mem_avail_ranges;
 static ranges_t guest_mem_reg_ranges;
+static mmu_ranges_t rom_mmu_ranges;
 static gra_t cif_trampoline;
 static gra_t claim_arena_start;
 static gra_t claim_arena_ptr;
@@ -390,7 +392,6 @@ rom_mmu_call(gea_t cia,
   gea_t virt;
   cell_t size;
   cell_t mode;
-  ha_t ha;
 
   if (strcmp("map", call)) {
     return ERR_UNSUPPORTED;
@@ -425,18 +426,8 @@ rom_mmu_call(gea_t cia,
   BUG_ON((virt & PAGE_MASK) != 0, "bad alignment");
 
   size = ALIGN(size, PAGE_SIZE);
-  while (size != 0) {
-    ha = pmem_ha(phys);
-    err = guest_map(ha, virt);
-    if (err != ERR_NONE) {
-      break;
-    }
-
-    phys += PAGE_SIZE;
-    virt += PAGE_SIZE;
-    size -= PAGE_SIZE;
-  }
-
+  mmu_range_add(&rom_mmu_ranges, virt, virt + size - 1,
+                phys, 0);
  done:
   return err;
 }
@@ -532,6 +523,12 @@ rom_init(const char *fdt_path)
   BUG_ON(pmem_size() <= MB(16), "guest RAM too small");
 
   INIT_LIST_HEAD(&known_ihandles);
+  mmu_range_init(&rom_mmu_ranges);
+  /*
+   * Map everything 1:1.
+   */
+  mmu_range_add(&rom_mmu_ranges, 0, pmem_size() - 1, 0, 0);
+
   range_init(&guest_mem_avail_ranges);
   range_init(&guest_mem_reg_ranges);
   range_add(&guest_mem_avail_ranges, 0,  pmem_size() - 1);
@@ -1469,5 +1466,19 @@ done:
   }
 
   r->ppcPC = r->ppcLR;
+  return ERR_NONE;
+}
+
+err_t
+rom_fault(gea_t gea,
+          gra_t *gra)
+{
+  mmu_range_t *m = mmu_range_find(&rom_mmu_ranges, gea);
+
+  if (m == NULL) {
+    return ERR_NOT_FOUND;
+  }
+
+  *gra = gea - m->base + m->ra;
   return ERR_NONE;
 }

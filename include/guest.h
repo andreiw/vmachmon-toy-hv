@@ -3,19 +3,15 @@
 #include "pvp.h"
 #include "vmm.h"
 
-typedef enum {
-  MMU_PSEUDO_ON,
-  MMU_OFF,
-  MMU_ON,
-} mmu_state_t;
-
 typedef struct guest_t {
+#define SDR1_MAGIC_ROM_MODE (-1)
   uint32_t sdr1;
   uint32_t pvr;
   uint32_t srr0;
   uint32_t srr1;
   uint32_t sr[16];
   uint32_t hid0;
+#define MSR_MMU_ON (MSR_IR | MSR_DR)
   uint32_t msr;
   /*
    * Bits the VMM may force on transparent of the guest state.
@@ -44,6 +40,7 @@ err_t guest_to(gra_t dest, const void *src, length_t bytes,
                length_t access_size);
 bool guest_toggle_ss(void);
 err_t guest_emulate(void);
+err_t guest_fault(void);
 
 #define guest_to_x(dest, src) guest_to(dest, src, sizeof(*(src)), sizeof(*(src)))
 #define guest_from_x(dest, src) guest_from(dest, src, sizeof(*(dest)), sizeof(*(dest)))

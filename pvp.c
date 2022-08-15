@@ -78,23 +78,11 @@ main(int argc, char **argv)
       goto unhandled;
     case kVmmReturnDataPageFault:
     case kVmmReturnInstrPageFault:
-      {
-        uint32_t dsisr;
-        uint32_t address;
-        unsigned long *return_params32;
-
-        return_params32 = guest->vmm->vmmRet.vmmrp32.return_params;
-        address = return_params32[0] & ~PAGE_MASK;
-        dsisr = return_params32[1];
-
-        if (pmem_gra_valid(address) &&
-            (dsisr & DSISR_NOT_PRESENT) != 0) {
-          err = guest_map(pmem_ha(address), address);
-          ON_ERROR("guest_map", err, unhandled);
-          continue;
-        }
+      err = guest_fault();
+      if (err != ERR_NONE) {
+        goto unhandled;
       }
-      goto unhandled;
+      break;
     case kVmmReturnAlignmentFault:
       goto unhandled;
     case kVmmReturnProgramException:
