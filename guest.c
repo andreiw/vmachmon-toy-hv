@@ -395,6 +395,7 @@ guest_emulate(void)
 {
   err_t err;
   uint32_t insn;
+  bool update_insn = true;
 
   err = guest_from_x(&insn, guest->regs->ppcPC);
   ON_ERROR("read insn", err, done);
@@ -402,7 +403,12 @@ guest_emulate(void)
 #define R(x) guest->regs->ppcGPRs[x]
 
   err = ERR_UNSUPPORTED;
-  if ((insn & INST_MFSPR_MASK) == INST_MFSPR) {
+  if ((insn & INST_RFI_MASK) == INST_RFI) {
+    update_insn = false;
+    guest_set_msr(guest->srr1);
+    guest->regs->ppcPC = guest->srr0;
+    err = ERR_NONE;
+  } else if ((insn & INST_MFSPR_MASK) == INST_MFSPR) {
     int reg = MASK_OFF(insn, 25, 21);
     int spr = MASK_OFF(insn, 20, 11);
     spr = ((spr & 0x1f) << 5) | ((spr & 0x3e0) >> 5);
@@ -411,20 +417,51 @@ guest_emulate(void)
       R(reg) = guest->pvr;
       err = ERR_NONE;
       break;
+    case SPRN_SRR0:
+      R(reg) = guest->srr0;
+      err = ERR_NONE;
+      break;
+    case SPRN_SRR1:
+      R(reg) = guest->srr1;
+      err = ERR_NONE;
     default:
       WARN("0x%x: unhandled MFSPR r%u, %u",
            guest->regs->ppcPC, reg, spr);
+      return ERR_UNSUPPORTED;
+    }
+  } else if ((insn & INST_MTSPR_MASK) == INST_MTSPR) {
+    int reg = MASK_OFF(insn, 25, 21);
+    int spr = MASK_OFF(insn, 20, 11);
+    spr = ((spr & 0x1f) << 5) | ((spr & 0x3e0) >> 5);
+    switch (spr) {
+    case SPRN_SRR0:
+      guest->srr0 = R(reg);
+      err = ERR_NONE;
+      break;
+    case SPRN_SRR1:
+      guest->srr1 = R(reg);
+      err = ERR_NONE;
+      break;
+    default:
+      WARN("0x%x: unhandled MTSPR %u, r%u",
+           guest->regs->ppcPC, spr ,reg);
       return ERR_UNSUPPORTED;
     }
   } else if ((insn & INST_MFMSR_MASK) == INST_MFMSR) {
     int reg = MASK_OFF(insn, 25, 21);
     R(reg) = guest->msr;
     err = ERR_NONE;
+  } else if ((insn & INST_MTMSR_MASK) == INST_MTMSR) {
+    int reg = MASK_OFF(insn, 25, 21);
+    guest_set_msr(reg);
+    err = ERR_NONE;
   }
 
  done:
   if (err == ERR_NONE) {
-    guest->regs->ppcPC += 4;
+    if (update_insn) {
+      guest->regs->ppcPC += 4;
+    }
   } else {
     WARN("0x%x: unhandled instruction 0x%x",
          guest->regs->ppcPC, insn);

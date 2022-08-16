@@ -53,3 +53,6 @@
 #define INST_RFI                0x4c000064
 
 #define SPRN_PVR        0x11f /* Processor Version Register */
+#define SPRN_SRR0       0x01a /* Save/Restore Register 0 */
+#define SPRN_SRR1       0x01b /* Save/Restore Register 1 */
+
