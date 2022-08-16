@@ -2,6 +2,7 @@
 
 #include "pvp.h"
 #include "vmm.h"
+#include "mon.h"
 
 typedef struct guest_t {
 #define SDR1_MAGIC_ROM_MODE (-1)
@@ -27,6 +28,7 @@ typedef struct guest_t {
 
 extern guest_t *guest;
 
+void guest_mon_dump(void);
 err_t guest_init(bool little, length_t ram_size);
 void guest_bye(void);
 bool guest_is_little(void);

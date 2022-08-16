@@ -1,5 +1,6 @@
 #include "pvp.h"
 #include "mmu_ranges.h"
+#include "mon.h"
 
 mmu_range_t *
 mmu_range_alloc(uint32_t base,
@@ -28,7 +29,7 @@ mmu_range_dump(mmu_ranges_t *mmu_ranges)
   mmu_range_t *mmu_range;
 
   list_for_each_entry(mmu_range, mmu_ranges, link) {
-    LOG("mmu_range 0x%x-0x%x -> 0x%x-0x%x",
+    mon_printf("  mmu_range RA 0x%08x-0x%08x -> EA 0x%08x-0x%08x\n",
         mmu_range->ra, mmu_range->limit - mmu_range->base +
         mmu_range->ra,
         mmu_range->base, mmu_range->limit);

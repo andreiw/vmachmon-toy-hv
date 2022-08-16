@@ -1,5 +1,6 @@
 #include "pvp.h"
 #include "ranges.h"
+#include "mon.h"
 
 length_t
 range_count(ranges_t *ranges)
@@ -37,7 +38,8 @@ range_dump(ranges_t *ranges)
   range_t *range;
 
   list_for_each_entry(range, ranges, link) {
-    LOG("range 0x%x-0x%x", range->base, range->limit);
+    mon_printf("  range 0x%08x-0x%08x\n",
+               range->base, range->limit);
   }
 }
 

@@ -3,17 +3,12 @@
 #include "socket.h"
 #include "guest.h"
 #include "vmm.h"
-
-static int
-mon_fprintf(void *unused,
-            const char *fmt,
-            ...);
+#include "rom.h"
 
 #define PICOL_IMPLEMENTATION
 #define PICOL_INT_BASE_16    1
 #define fflush(x)
 #define fprintf(x, fmt, ...) mon_fprintf(x, fmt, ## __VA_ARGS__)
-#define mon_printf(fmt, ...) mon_fprintf(NULL,  fmt, ## __VA_ARGS__)
 #include "picol.h"
 
 #define SOURCE_FILE "pvp.pcl"
@@ -68,12 +63,18 @@ PICOL_COMMAND(reg) {
     r = (uint32_t *) &guest->regs->ppcXER;
   } else if (PICOL_EQ(argv[0], "cr")) {
     r = (uint32_t *) &guest->regs->ppcCR;
+  } else if (PICOL_EQ(argv[0], "ctr")) {
+    r = (uint32_t *) &guest->regs->ppcCTR;
+  } else if (PICOL_EQ(argv[0], "fpscr")) {
+    r = (uint32_t *) &guest->vmm->vmm_proc_state.ppcFPSCR;
   } else if (PICOL_EQ(argv[0], "pc")) {
     r = (uint32_t *) &guest->regs->ppcPC;
   } else if (PICOL_EQ(argv[0], "lr")) {
     r = (uint32_t *) &guest->regs->ppcLR;
   } else if (PICOL_EQ(argv[0], "msr")) {
-    r = (uint32_t *) &guest->regs->ppcMSR;
+    r = (uint32_t *) &guest->msr;
+  } else if (PICOL_EQ(argv[0], "sdr1")) {
+    r = (uint32_t *) &guest->sdr1;
   } else if (argv[0][0] == 'r') {
     PICOL_SCAN_INT(v, argv[0] + 1);
     r = (uint32_t *) &guest->regs->ppcGPRs[v];
@@ -112,33 +113,15 @@ PICOL_COMMAND(gra) {
 PICOL_COMMAND(cpu) {
   PICOL_ARITY(argc == 1);
 
-  int i, j;
-  uint32_t insn;
-  unsigned long *return_params32;
+  guest_mon_dump();
 
-  guest_from_x(&insn, guest->regs->ppcPC);
+  return PICOL_OK;
+}
 
-  mon_printf("  PC                   = %p (%lu)\n",
-      (void *)guest->regs->ppcPC, guest->regs->ppcPC);
-  mon_printf("  Instruction at PC    = 0x%08x\n", insn);
-  mon_printf("  CR                   = 0x%08x\n", guest->regs->ppcCR);
-  mon_printf("  LR                   = 0x%08x (%lu)\n",
-      guest->regs->ppcLR, guest->regs->ppcLR);
-  mon_printf("  MSR                  = 0x%08x\n", guest->regs->ppcMSR);
-  mon_printf("  return_code          = 0x%08x (%s)\n",
-      guest->vmm->return_code, vmm_return_code_to_string(guest->vmm->return_code));
+PICOL_COMMAND(rom) {
+  PICOL_ARITY(argc == 1);
 
-  return_params32 = guest->vmm->vmmRet.vmmrp32.return_params;
-
-  for (i = 0; i < 4; i++)
-    mon_printf("  return_params32[%d]   = 0x%08lx (%lu)\n", i,
-        return_params32[i], return_params32[i]);
-
-  for (j = 0; j < 16; j++) {
-    mon_printf("r%-2d = 0x%08x r%-2d = 0x%08x\n",
-        j * 2, guest->regs->ppcGPRs[j * 2],
-        j * 2 + 1, guest->regs->ppcGPRs[j * 2 + 1]);
-  }
+  rom_mon_dump();
 
   return PICOL_OK;
 }
@@ -313,7 +296,7 @@ PICOL_COMMAND(memreadstring) {
   return picolErrFmt(interp, "%s", err_to_string(err));
 }
 
-static int
+int
 mon_fprintf(void *unused,
             const char *fmt,
             ...)
@@ -415,6 +398,7 @@ mon_init(void)
   picolRegisterCmd(interp, "pc", picol_reg, NULL);
   picolRegisterCmd(interp, "lr", picol_reg, NULL);
   picolRegisterCmd(interp, "msr", picol_reg, NULL);
+  picolRegisterCmd(interp, "sdr1", picol_reg, NULL);
   picolRegisterCmd(interp, "gra", picol_gra, NULL);
   picolRegisterCmd(interp, "mr8", picol_memread, NULL);
   picolRegisterCmd(interp, "mr16", picol_memread, NULL);
@@ -426,6 +410,7 @@ mon_init(void)
   picolRegisterCmd(interp, "d16", picol_dump, NULL);
   picolRegisterCmd(interp, "d32", picol_dump, NULL);
   picolRegisterCmd(interp, "cpu", picol_cpu, NULL);
+  picolRegisterCmd(interp, "rom", picol_rom, NULL);
 
   rc = picolSource(interp, SOURCE_FILE);
   if (rc != PICOL_OK) {

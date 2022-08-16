@@ -14,6 +14,7 @@
 #include "libfdt.h"
 #include "term.h"
 #include "list.h"
+#include "mon.h"
 
 #include <fcntl.h>
 #include <errno.h>
@@ -72,15 +73,23 @@ typedef struct ihandle_methods {
   ihandle_close_t close;
 } ihandle_methods_t;
 
+typedef enum ihandle_type {
+  IHANDLE_BOGUS,
+  IHANDLE_WRAPPED,
+  IHANDLE_FILE,
+} ihandle_type_t;
+
 typedef struct ihandle_header {
-  ihandle_t value;
   struct list_head link;
+  ihandle_type_t type;
+  ihandle_t value;
   ihandle_methods_t methods;
 } ihandle_header_t;
 
 typedef struct ihandle_file {
   ihandle_header_t header;
   int fd;
+  char *path;
 } ihandle_file_t;
 
 typedef struct {
@@ -124,6 +133,39 @@ rom_node_offset_by_ihandle(ihandle_t ihandle)
   return fdt_node_offset_by_phandle(fdt, ihandle);
 }
 
+static void
+rom_mon_dump_known_ihandles(void)
+{
+  ihandle_header_t *header;
+
+  list_for_each_entry(header, &known_ihandles, link) {
+    switch (header->type) {
+    case IHANDLE_WRAPPED: {
+      int node = rom_node_offset_by_ihandle(header->value);
+      const char *p = "<UNKNOWN>";
+      if (node > 0 &&
+          fdt_get_path(fdt, node, (char *) xfer_buf,
+                       sizeof(xfer_buf)) >= 0) {
+        p = (const char *) xfer_buf;
+      }
+      mon_printf("0x%08x: wrapped (path '%s')\n",
+                 header->value, p);
+      break;
+    }
+    case IHANDLE_FILE: {
+      ihandle_file_t *f = container_of(header, ihandle_file_t, header);
+      mon_printf("0x%08x: file (fd %u, path = '%s')\n",
+                 header->value, f->fd, f->path);
+      break;
+    }
+    case IHANDLE_BOGUS:
+    default:
+      mon_printf("0x%08x: <corrupt ihandle entry>\n",
+                 header->value);
+    }
+  }
+}
+
 static ihandle_methods_t *
 rom_methods_by_ihandle(ihandle_t ihandle)
 {
@@ -153,6 +195,7 @@ rom_wrap_ihandle_with_methods(ihandle_t t,
   }
 
   h->value = t;
+  h->type = IHANDLE_WRAPPED;
   h->methods.write = write;
   h->methods.read = read;
   h->methods.seek = seek;
@@ -219,15 +262,18 @@ rom_file_close(struct ihandle_methods *im)
 
   close(f->fd);
   list_del(&h->link);
+  free(f->path);
   free(f);
 }
 
 static err_t
 rom_ihandle_from_file(const char *path,
-                      ihandle_t *ihandle)
+                      ihandle_t *ihandle,
+                      const char *full_path)
 {
   int fd;
   ihandle_file_t *f;
+  char *dup_path;
 
   fd = open(path, O_RDWR);
   if (fd < 0) {
@@ -239,12 +285,20 @@ rom_ihandle_from_file(const char *path,
     return ERR_NO_MEM;
   }
 
+  dup_path = strdup(full_path);
+  if (dup_path == NULL) {
+    free(f);
+    return ERR_NO_MEM;
+  }
+
+  f->header.type = IHANDLE_FILE;
   f->header.value = (ihandle_t) f;
   f->header.methods.write = rom_file_write;
   f->header.methods.read = rom_file_read;
   f->header.methods.seek = rom_file_seek;
   f->header.methods.close = rom_file_close;
   f->fd = fd;
+  f->path = dup_path;
   list_add_tail(&f->header.link, &known_ihandles);
   *ihandle = f->header.value;
   return ERR_NONE;
@@ -1051,6 +1105,10 @@ rom_itopath(gea_t cia,
   err = guest_from_x(&buf_len, CIA_ARG(2));
   ON_ERROR("buf_len", err, access_fail);
 
+  /*
+   * TODO: handle ihandles that are returned by open.
+   */
+
   node = rom_node_offset_by_ihandle(ih);
   if (node < 0) {
     result = -1;
@@ -1161,7 +1219,7 @@ rom_open(gea_t cia,
   }
   f++;
 
-  err = rom_ihandle_from_file(f, &ihandle);
+  err = rom_ihandle_from_file(f, &ihandle, d);
   if (err != ERR_NONE) {
     ERROR(err, "couldn't open '%s'", d);
   }
@@ -1481,4 +1539,24 @@ rom_fault(gea_t gea,
 
   *gra = gea - m->base + m->ra;
   return ERR_NONE;
+}
+
+void
+rom_mon_dump(void)
+{
+  mon_printf("claim arena:\n");
+  mon_printf("  start = 0x%08x\n", claim_arena_start);
+  mon_printf("    ptr = 0x%08x\n", claim_arena_ptr);
+  mon_printf("    end = 0x%08x\n", claim_arena_end);
+  mon_printf("stack:\n");
+  mon_printf("  start = 0x%08x\n", stack_start);
+  mon_printf("    end = 0x%08x\n", stack_end);
+  mon_printf("guest_mem_avail_ranges:\n");
+  range_dump(&guest_mem_avail_ranges);
+  mon_printf("guest_mem_reg_ranges:\n");
+  range_dump(&guest_mem_reg_ranges);
+  mon_printf("rom_mmu_ranges:\n");
+  mmu_range_dump(&rom_mmu_ranges);
+  mon_printf("known_ihandles:\n");
+  rom_mon_dump_known_ihandles();
 }

@@ -7,6 +7,62 @@
 
 guest_t *guest = & (guest_t) { 0 };
 
+void
+guest_mon_dump(void)
+{
+  int i;
+  unsigned long *return_params32;
+  uint32_t insn = -1;
+
+  guest_from_x(&insn, guest->regs->ppcPC);
+
+  mon_printf("VMM state:\n");
+  mon_printf("  MSR                   = 0x%08x\n", guest->regs->ppcMSR);
+  mon_printf("  vmm_state_page_t *vmm = mmu_o%s\n",
+             guest->vmm == guest->vmm_mmu_on ? "n" : "ff");
+  mon_printf("  return_code           = 0x%08x (%s)\n",
+      guest->vmm->return_code, vmm_return_code_to_string(guest->vmm->return_code));
+
+  return_params32 = guest->vmm->vmmRet.vmmrp32.return_params;
+
+  for (i = 0; i < 4; i++) {
+    mon_printf("  return_params32[%d]    = 0x%08lx (%lu)\n", i,
+        return_params32[i], return_params32[i]);
+  }
+
+  mon_printf("OEA:\n");
+  mon_printf("  PVR  = 0x%08x\n", guest->pvr);
+  mon_printf("  MSR  = 0x%08x\n", guest->msr);
+  mon_printf("  SDR1 = 0x%08x\n", guest->sdr1);
+  mon_printf("  HID0 = 0x%08x\n", guest->hid0);
+  mon_printf("  SRR0 = 0x%08x SRR1 = 0x%08x\n",
+             guest->srr0, guest->srr1);
+  for (i = 0; i < ARRAY_LEN(guest->sr); i += 2) {
+    mon_printf("  SR%-2d = 0x%08x SR%-2d = 0x%08x\n",
+               i, guest->sr[i], i + 1, guest->sr[i + 1]);
+  }
+
+  mon_printf("UISA:\n");
+  mon_printf("  PC                   = %p (%lu)\n",
+      (void *)guest->regs->ppcPC, guest->regs->ppcPC);
+  mon_printf("  Instruction at PC    = 0x%08x\n", insn);
+  mon_printf("  CR                   = 0x%08x\n", guest->regs->ppcCR);
+  mon_printf("  LR                   = 0x%08x (%lu)\n",
+             guest->regs->ppcLR, guest->regs->ppcLR);
+  mon_printf("  CTR                  = 0x%08x (%lu)\n",
+             guest->regs->ppcCTR, guest->regs->ppcCTR);
+  mon_printf("  XER                  = 0x%08x\n",
+             guest->regs->ppcXER);
+  mon_printf("  FPSCR                = 0x%08x\n",
+             guest->vmm->vmm_proc_state.ppcFPSCR);
+
+  for (i = 0; i < 16; i++) {
+    mon_printf("  r%-2d = 0x%08x r%-2d = 0x%08x\n",
+        i * 2, guest->regs->ppcGPRs[i * 2],
+        i * 2 + 1, guest->regs->ppcGPRs[i * 2 + 1]);
+  }
+}
+
 static void
 guest_set_vmm(bool mmu_on)
 {
