@@ -1215,7 +1215,8 @@ rom_open(gea_t cia,
   d[guest_from_ex(d, path_ea, sizeof(xfer_buf), 1, true)] = '\0';
   f = strchr(d, ',');
   if (f == NULL) {
-    goto done;
+    WARN("unsupported non-file open on '%s'", d);
+    return ERR_PAUSE;
   }
   f++;
 
@@ -1223,7 +1224,7 @@ rom_open(gea_t cia,
   if (err != ERR_NONE) {
     ERROR(err, "couldn't open '%s'", d);
   }
- done:
+/* done: */
 
   err = guest_to_x(CIA_RET(0), &ihandle);
   ON_ERROR("ihandle", err, access_fail);
