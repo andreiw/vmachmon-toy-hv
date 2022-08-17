@@ -6,6 +6,7 @@
   ERR_DEF(ERR_NOT_READY, "not ready")                                 \
   ERR_DEF(ERR_BAD_ACCESS, "bad access to guest memory")               \
   ERR_DEF(ERR_OUT_OF_BOUNDS, "bound check")                           \
+  ERR_DEF(ERR_IO_ERROR, "io error")                                   \
   ERR_DEF(ERR_UNSUPPORTED, "not supported")                           \
   ERR_DEF(ERR_NO_MEM, "no memory")                                    \
   ERR_DEF(ERR_NOT_FOUND, "not found")                                 \

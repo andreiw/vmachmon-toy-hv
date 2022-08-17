@@ -47,3 +47,30 @@
 
 #define likely(x)     (__builtin_constant_p(x) ? !!(x) : __builtin_expect(!!(x), 1))
 #define unlikely(x)   (__builtin_constant_p(x) ? !!(x) : __builtin_expect(!!(x), 0))
+
+static inline uint32_t
+swab32(uint32_t value)
+{
+   uint32_t result;
+
+   __asm__("rlwimi %0,%1,24,16,23\n\t"
+           "rlwimi %0,%1,8,8,15\n\t"
+           "rlwimi %0,%1,24,0,7"
+           : "=r" (result)
+           : "r" (value), "0" (value >> 24));
+   return result;
+}
+
+static inline uint16_t
+swab16(uint16_t value)
+{
+   uint16_t result;
+
+   __asm__("rlwimi %0,%1,8,16,23\n\t"
+           : "=r" (result)
+           : "r" (value), "0" (value >> 8));
+   return result;
+}
+
+#define le32_to_cpu(X) swab32(X)
+#define le16_to_cpu(X) swab16(X)
