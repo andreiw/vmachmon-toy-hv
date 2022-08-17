@@ -15,6 +15,7 @@
 #include "term.h"
 #include "list.h"
 #include "mon.h"
+#include "disk.h"
 
 #include <fcntl.h>
 #include <errno.h>
@@ -77,6 +78,7 @@ typedef enum ihandle_type {
   IHANDLE_BOGUS,
   IHANDLE_WRAPPED,
   IHANDLE_FILE,
+  IHANDLE_DISK,
 } ihandle_type_t;
 
 typedef struct ihandle_header {
@@ -91,6 +93,14 @@ typedef struct ihandle_file {
   int fd;
   char *path;
 } ihandle_file_t;
+
+typedef struct ihandle_disk {
+  ihandle_header_t header;
+  disk_t *disk;
+  disk_part_t part;
+  offset_t current_off;
+  char *path;
+} ihandle_disk_t;
 
 typedef struct {
   err_t (*handler)(gea_t cia, count_t cia_in,
@@ -156,6 +166,13 @@ rom_mon_dump_known_ihandles(void)
       ihandle_file_t *f = container_of(header, ihandle_file_t, header);
       mon_printf("0x%08x: file (fd %u, path = '%s')\n",
                  header->value, f->fd, f->path);
+      break;
+    }
+    case IHANDLE_DISK: {
+      ihandle_disk_t *d = container_of(header, ihandle_disk_t, header);
+
+      mon_printf("0x%08x: disk (path = '%s')\n",
+                 header->value, d->path);
       break;
     }
     case IHANDLE_BOGUS:
@@ -253,7 +270,6 @@ rom_file_write(ihandle_methods_t *im,
 
   return ret;
 }
-
 static void
 rom_file_close(struct ihandle_methods *im)
 {
@@ -267,9 +283,76 @@ rom_file_close(struct ihandle_methods *im)
 }
 
 static err_t
+rom_disk_seek(ihandle_methods_t *im,
+              offset_t offset)
+{
+  ihandle_header_t *h = container_of(im, ihandle_header_t, methods);
+  ihandle_disk_t *d = container_of(h, ihandle_disk_t, header);
+
+  if (offset > d->part.length) {
+    return ERR_OUT_OF_BOUNDS;
+  }
+
+  d->current_off = offset;
+  return ERR_NONE;
+}
+
+static count_t
+rom_disk_read(ihandle_methods_t *im,
+              uint8_t *s,
+              count_t len)
+{
+  length_t c;
+  ihandle_header_t *h = container_of(im, ihandle_header_t, methods);
+  ihandle_disk_t *d = container_of(h, ihandle_disk_t, header);
+
+  c = disk_seek(d->disk, d->part.off + d->current_off);
+  if (c != ERR_NONE) {
+    return 0;
+  }
+
+  len = min(len, d->part.length - d->current_off);
+  c = disk_in(d->disk, s, len);
+  d->current_off += c;
+  return c;
+}
+
+static count_t
+rom_disk_write(ihandle_methods_t *im,
+               const uint8_t *s,
+               count_t len)
+{
+  length_t c;
+  ihandle_header_t *h = container_of(im, ihandle_header_t, methods);
+  ihandle_disk_t *d = container_of(h, ihandle_disk_t, header);
+
+  c = disk_seek(d->disk, d->part.off + d->current_off);
+  if (c != ERR_NONE) {
+    return 0;
+  }
+
+  len = min(len, d->part.length - d->current_off);
+  c = disk_out(d->disk, s, len);
+  d->current_off += c;
+  return c;
+}
+
+static void
+rom_disk_close(struct ihandle_methods *im)
+{
+  ihandle_header_t *h = container_of(im, ihandle_header_t, methods);
+  ihandle_disk_t *d = container_of(h, ihandle_disk_t, header);
+
+  disk_close(d->disk);
+  list_del(&h->link);
+  free(d->path);
+  free(d);
+}
+
+static err_t
 rom_ihandle_from_file(const char *path,
-                      ihandle_t *ihandle,
-                      const char *full_path)
+                      const char *full_path,
+                      ihandle_t *ihandle)
 {
   int fd;
   ihandle_file_t *f;
@@ -301,6 +384,40 @@ rom_ihandle_from_file(const char *path,
   f->path = dup_path;
   list_add_tail(&f->header.link, &known_ihandles);
   *ihandle = f->header.value;
+  return ERR_NONE;
+}
+
+static err_t
+rom_ihandle_from_disk(disk_t *disk,
+                      disk_part_t *part,
+                      const char *full_path,
+                      ihandle_t *ihandle)
+{
+  ihandle_disk_t *d;
+  char *dup_path;
+
+  d = malloc(sizeof(ihandle_disk_t));
+  if (d == NULL) {
+    return ERR_NO_MEM;
+  }
+
+  dup_path = strdup(full_path);
+  if (dup_path == NULL) {
+    free(d);
+    return ERR_NO_MEM;
+  }
+
+  d->header.type = IHANDLE_DISK;
+  d->header.value = (ihandle_t) d;
+  d->header.methods.write = rom_disk_write;
+  d->header.methods.read = rom_disk_read;
+  d->header.methods.seek = rom_disk_seek;
+  d->header.methods.close = rom_disk_close;
+  d->path = dup_path;
+  d->disk = disk;
+  d->part = *part;
+  list_add_tail(&d->header.link, &known_ihandles);
+  *ihandle = d->header.value;
   return ERR_NONE;
 }
 
@@ -1196,6 +1313,80 @@ rom_finddevice(gea_t cia,
 }
 
 static err_t
+rom_open_parse_path(char *path, ihandle_t *ihandle)
+{
+  char *p;
+  char *f;
+  int node;
+  err_t err;
+  disk_t *disk;
+  const char *disk_path;
+  disk_part_t part;
+  char *dev = strdup(path);
+
+  if (dev == NULL) {
+    return ERR_NO_MEM;
+  }
+
+  f = strchr(dev, ',');
+  if (f != NULL) {
+    *f = '\0';
+    f++;
+  }
+
+  p = strchr(dev, ':');
+  if (p != NULL) {
+    *p = '\0';
+    p++;
+  }
+
+  if (f != NULL) {
+    /*
+     * Temporary, while we don't have own FS
+     * handler, read from outside.
+     */
+    err = rom_ihandle_from_file(f, path, ihandle);
+    free(dev);
+    return err;
+  }
+
+  node = fdt_path_offset(fdt, dev);
+  if (node < 0) {
+    WARN("dev '%s' not found", dev);
+    err = ERR_NOT_FOUND;
+    goto done;
+  }
+
+  disk_path = fdt_getprop(fdt, node, "disk_file", NULL);
+  if (disk_path == NULL) {
+    WARN("dev '%s' inappropriate device", dev);
+    err = ERR_UNSUPPORTED;
+    goto done;
+  }
+
+  disk = disk_open(disk_path);
+  if (disk == NULL) {
+    return ERR_POSIX;
+  }
+
+  err = disk_find_part(disk, atoi(p), &part);
+  if (err != ERR_NONE) {
+    goto done;
+  }
+
+  err = rom_ihandle_from_disk(disk, &part,
+                              path, ihandle);
+ done:
+  if (err != ERR_NONE) {
+    if (disk != NULL) {
+      disk_close(disk);
+    }
+    free(dev);
+  }
+  return ERR_NONE;
+}
+
+static err_t
 rom_open(gea_t cia,
          count_t cia_in,
          count_t cia_out)
@@ -1205,7 +1396,6 @@ rom_open(gea_t cia,
   /*
    * 0 on failure;
    */
-  char *f;
   ihandle_t ihandle = 0;
   char *d = (char *) xfer_buf;
 
@@ -1213,14 +1403,7 @@ rom_open(gea_t cia,
   ON_ERROR("path", err, access_fail);
 
   d[guest_from_ex(d, path_ea, sizeof(xfer_buf), 1, true)] = '\0';
-  f = strchr(d, ',');
-  if (f == NULL) {
-    WARN("unsupported non-file open on '%s'", d);
-    return ERR_PAUSE;
-  }
-  f++;
-
-  err = rom_ihandle_from_file(f, &ihandle, d);
+  err = rom_open_parse_path(d, &ihandle);
   if (err != ERR_NONE) {
     ERROR(err, "couldn't open '%s'", d);
   }

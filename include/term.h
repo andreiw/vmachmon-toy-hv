@@ -1,5 +1,4 @@
 #pragma once
-
 #include "pvp.h"
 
 err_t term_init(void);

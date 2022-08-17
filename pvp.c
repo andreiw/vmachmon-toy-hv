@@ -4,6 +4,7 @@
 #include "ppc-defs.h"
 #include "term.h"
 #include "mon.h"
+#include "disk.h"
 
 #define ENTER_MON_MSG "waiting for monitor"
 
@@ -18,7 +19,7 @@ usage(int argc, char **argv)
   while (1) {
     int c;
     opterr = 0;
-    c = getopt(argc, argv, "C:F:L");
+    c = getopt(argc, argv, "F:L");
     if (c == -1) {
       break;
     } else if (c == '?') {
@@ -142,6 +143,7 @@ main(int argc, char **argv)
 
   LOG("Requested VM stop");
   guest_bye();
+  disk_bye();
   term_bye();
   mon_bye();
 

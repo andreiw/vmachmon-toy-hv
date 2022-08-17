@@ -130,7 +130,7 @@ PICOL_COMMAND(dump) {
   PICOL_ARITY2(argc == 3 || argc == 2, "d8/d16/d32 ea ?count");
 
   gea_t ea;
-  size_t stride;
+  length_t stride;
   count_t done, each;
   err_t err = ERR_NONE;
   char t = argv[0][1];

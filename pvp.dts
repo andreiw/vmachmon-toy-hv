@@ -48,6 +48,7 @@
 
 		bootdev: disk {
 			device_type = "block";
+			disk_file = "disk.img";
 		};
 	};
 
@@ -164,5 +165,6 @@
 		mem = "/memory";
 		mmu = "/cpus/cpu";
 		con = "/pci/isa/serial";
+		hd = "/fake-storage/disk";
 	};
 };
