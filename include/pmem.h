@@ -14,3 +14,5 @@ length_t pmem_from(void *dest, gra_t src, length_t bytes,
 length_t pmem_from_ex(void *dest, gra_t src,
                       length_t bytes, length_t access_size,
                       bool nul_term);
+
+#define pmem_from_x(dest, src) ((pmem_from(dest, src, sizeof(*(dest)), sizeof(*(dest))) == sizeof(*(dest))) ? ERR_NONE : ERR_BAD_ACCESS)

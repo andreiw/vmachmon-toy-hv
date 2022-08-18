@@ -1,0 +1,1 @@
+while true; do reset && stty raw && sleep 1 && nc localhost 7000; done

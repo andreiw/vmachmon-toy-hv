@@ -185,6 +185,30 @@ guest_init(bool little, length_t ram_size)
   return err;
 }
 
+void
+guest_unmap(gea_t ea)
+{
+  kern_return_t ret;
+
+  ea &= ~PAGE_MASK;
+
+  ret = vmm_call(kVmmUnmapPage, guest->vmm_mmu_on->thread_index, ea);
+  if (ret != KERN_SUCCESS) {
+    WARN("failed to unmap 0x%x", ea);
+  }
+}
+
+void
+guest_unmap_all(void)
+{
+  kern_return_t ret;
+
+  ret = vmm_call(kVmmUnmapAllPages, guest->vmm_mmu_on->thread_index);
+  if (ret != KERN_SUCCESS) {
+    WARN("failed to unmap all");
+  }
+}
+
 err_t
 guest_map(ha_t host_address, gea_t ea)
 {
@@ -198,7 +222,7 @@ guest_map(ha_t host_address, gea_t ea)
 
   /*
    * Apparently (looking at the sources) this is a
-   * kern_err_t...
+   * kern_return_t...
    */
   ON_VMM_ERROR("kVmmMapPage", vmm_ret, out);
  out:
@@ -349,6 +373,7 @@ guest_backmap_ex(gea_t ea, gra_t *gra, bool try_fast)
     return rom_fault(ea, gra);
   }
 
+  ERROR(ERR_UNSUPPORTED, "time to wire up BAT/SR/SDR1 decoding");
   return ERR_NOT_FOUND;
 }
 
@@ -403,7 +428,85 @@ guest_emulate(void)
 #define R(x) guest->regs->ppcGPRs[x]
 
   err = ERR_UNSUPPORTED;
-  if ((insn & INST_RFI_MASK) == INST_RFI) {
+
+  /*
+   * Unfortunately NT4.0 kernel _is_ MP, and it does an mfsprg between
+   * an lwarx and stwcx.
+   *
+   * grep -C4 lwarx nt.txt | grep mfsp
+   */
+
+  if (insn == 0x7d7042a6) {
+    /*
+     * Read from sprg[0] into r5, write r5 to [r10].
+     */
+    uint32_t cmp[4];
+    uint32_t insn[4] = { 0x40820014, 0x7d60512d, 0x4082000c, 0x4c00012c };
+
+    guest_from_ex(cmp, guest->regs->ppcPC + 4, sizeof(cmp), sizeof(uint32_t), false);
+    if (!memcmp(cmp, insn, sizeof(cmp))) {
+      guest_to_x(R(10), &guest->sprg[0]);
+      guest->regs->ppcPC += 10 * sizeof(uint32_t);
+      VERBOSE("skipped lock seq 1");
+      return ERR_NONE;
+    }
+  } else if (insn == 0x7cb042a6) {
+    /*
+     * Read from sprg[0] into r5, write r5 to [r3].
+     */
+    uint32_t cmp[4];
+    uint32_t insn[4] = { 0x40820024, 0x7ca0192d, 0x4082001c, 0x4c00012c };
+
+    guest_from_ex(cmp, guest->regs->ppcPC + 4, sizeof(cmp), sizeof(uint32_t), false);
+    if (!memcmp(cmp, insn, sizeof(cmp))) {
+      guest_to_x(R(3), &guest->sprg[0]);
+      guest->regs->ppcPC += 5 * sizeof(uint32_t);
+      VERBOSE("skipped lock seq 2");
+      return ERR_NONE;
+    }
+  } else if (insn == 0x7cf042a6) {
+    /*
+     * Read from sprg[0] into r7, write r7 to [r9].
+     */
+    uint32_t cmp[4];
+    uint32_t insn[4] = { 0x40820014, 0x7ce0492d, 0x4082000c, 0x4c00012c };
+
+    guest_from_ex(cmp, guest->regs->ppcPC + 4, sizeof(cmp), sizeof(uint32_t), false);
+    if (!memcmp(cmp, insn, sizeof(cmp))) {
+      guest_to_x(R(9), &guest->sprg[0]);
+      guest->regs->ppcPC += 5 * sizeof(uint32_t);
+      VERBOSE("skipped lock seq 3/4");
+      return ERR_NONE;
+    }
+  }
+
+  if ((insn & INST_TLBIE_MASK) == INST_TLBIE) {
+    uint32_t nexti = 0;
+    int reg = MASK_OFF(insn, 15, 11);
+    gea_t ea = R(reg);
+    /*
+     * Valid for NT, heh.
+     *
+     * Need to check Linux.
+     */
+    guest_from_x(&nexti, guest->regs->ppcPC + 4);
+    if (nexti == INST_SYNC) {
+      guest_unmap_all();
+    } else {
+      guest_unmap(ea);
+    }
+    err = ERR_NONE;
+  } if ((insn & INST_MFSR_MASK) == INST_MFSR) {
+    int reg = MASK_OFF(insn, 25, 21);
+    int sr = MASK_OFF(insn, 19, 16);
+    R(reg) = guest->sr[sr];
+    err = ERR_NONE;
+  } else if ((insn & INST_MTSR_MASK) == INST_MTSR) {
+    int reg = MASK_OFF(insn, 25, 21);
+    int sr = MASK_OFF(insn, 19, 16);
+    guest->sr[sr] = R(reg);
+    err = ERR_NONE;
+  } else if ((insn & INST_RFI_MASK) == INST_RFI) {
     update_insn = false;
     guest_set_msr(guest->srr1);
     guest->regs->ppcPC = guest->srr0;
@@ -424,6 +527,47 @@ guest_emulate(void)
     case SPRN_SRR1:
       R(reg) = guest->srr1;
       err = ERR_NONE;
+      break;
+    case SPRN_IBAT0U:
+    case SPRN_IBAT0L:
+    case SPRN_IBAT1U:
+    case SPRN_IBAT1L:
+    case SPRN_IBAT2U:
+    case SPRN_IBAT2L:
+    case SPRN_IBAT3U:
+    case SPRN_IBAT3L: {
+      uint32_t *batp = guest->ubat;
+      R(reg) = batp[spr - SPRN_IBAT0U];
+      err = ERR_NONE;
+      break;
+    }
+    case SPRN_DBAT0U:
+    case SPRN_DBAT0L:
+    case SPRN_DBAT1U:
+    case SPRN_DBAT1L:
+    case SPRN_DBAT2U:
+    case SPRN_DBAT2L:
+    case SPRN_DBAT3U:
+    case SPRN_DBAT3L: {
+      WARN("access to non-existing DBAT SPR %u", spr);
+      R(reg) = 0;
+      err = ERR_NONE;
+      break;
+    }
+    case SPRN_SPRG0:
+    case SPRN_SPRG1:
+    case SPRN_SPRG2:
+    case SPRN_SPRG3: {
+      uint32_t *sprg = guest->sprg;
+      R(reg) = sprg[spr - SPRN_SPRG0];
+      err = ERR_NONE;
+      break;
+    }
+    case SPRN_SDR1: {
+      R(reg) = guest->sdr1;
+      err = ERR_NONE;
+      break;
+    }
     default:
       WARN("0x%x: unhandled MFSPR r%u, %u",
            guest->regs->ppcPC, reg, spr);
@@ -442,6 +586,33 @@ guest_emulate(void)
       guest->srr1 = R(reg);
       err = ERR_NONE;
       break;
+    case SPRN_IBAT0U:
+    case SPRN_IBAT0L:
+    case SPRN_IBAT1U:
+    case SPRN_IBAT1L:
+    case SPRN_IBAT2U:
+    case SPRN_IBAT2L:
+    case SPRN_IBAT3U:
+    case SPRN_IBAT3L: {
+      uint32_t *batp = guest->ubat;
+      batp[spr - SPRN_IBAT0U] = R(reg);
+      err = ERR_NONE;
+      break;
+    }
+    case SPRN_SPRG0:
+    case SPRN_SPRG1:
+    case SPRN_SPRG2:
+    case SPRN_SPRG3: {
+      uint32_t *sprg = guest->sprg;
+      sprg[spr - SPRN_SPRG0] = R(reg);
+      err = ERR_NONE;
+      break;
+    }
+    case SPRN_SDR1: {
+      guest->sdr1 = R(reg);
+      err = ERR_NONE;
+      break;
+    }
     default:
       WARN("0x%x: unhandled MTSPR %u, r%u",
            guest->regs->ppcPC, spr ,reg);
@@ -453,7 +624,7 @@ guest_emulate(void)
     err = ERR_NONE;
   } else if ((insn & INST_MTMSR_MASK) == INST_MTMSR) {
     int reg = MASK_OFF(insn, 25, 21);
-    guest_set_msr(reg);
+    guest_set_msr(R(reg));
     err = ERR_NONE;
   }
 

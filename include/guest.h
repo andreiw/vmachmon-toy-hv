@@ -10,7 +10,9 @@ typedef struct guest_t {
   uint32_t pvr;
   uint32_t srr0;
   uint32_t srr1;
+  uint32_t ubat[8];
   uint32_t sr[16];
+  uint32_t sprg[4];
   uint32_t hid0;
 #define MSR_MMU_ON (MSR_IR | MSR_DR)
   uint32_t msr;

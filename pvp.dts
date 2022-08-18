@@ -48,7 +48,7 @@
 
 		bootdev: disk {
 			device_type = "block";
-			disk_file = "disk.img";
+			disk_file = "/Volumes/Public/disk.img";
 		};
 	};
 

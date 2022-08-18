@@ -43,15 +43,58 @@
 #define INST_MTMSR_MASK         0xfc0007fe
 #define INST_MFMSR_MASK         0xfc0007fe
 #define INST_MFSR_MASK          0xfc0007fe
+#define INST_MTSR_MASK          0xfc0007fe
 #define INST_RFI_MASK           0xfc0007fe
+#define INST_TLBIE_MASK         0xfc0007fe
 
 #define INST_MTSPR              0x7c0003a6
 #define INST_MFSPR              0x7c0002a6
 #define INST_MTMSR              0x7c000124
 #define INST_MFMSR              0x7c0000a6
+#define INST_MTSR               0x7c0001a4
 #define INST_MFSR               0x7c0004a6
 #define INST_RFI                0x4c000064
+#define INST_TLBIE              0x7c000264
+#define INST_SYNC               0x7c0004ac
 
-#define SPRN_PVR        0x11f /* Processor Version Register */
-#define SPRN_SRR0       0x01a /* Save/Restore Register 0 */
-#define SPRN_SRR1       0x01b /* Save/Restore Register 1 */
+/* User-level SPRs */
+#define SPRN_601_MQ     0
+#define SPRN_RTCU       4
+#define SPRN_RTCL       5
+
+/* Supervisor-level SPRs */
+#define SPRN_DSISR      18
+#define SPRN_DAR        19
+#define SPRN_RTCU_WRITE 20
+#define SPRN_RTCU_READ  21
+#define SPRN_DEC        22
+#define SPRN_SDR1       25
+#define SPRN_SRR0       26  /* Save/Restore Register 0 */
+#define SPRN_SRR1       27  /* Save/Restore Register 1 */
+#define SPRN_SPRG0      272
+#define SPRN_SPRG1      273
+#define SPRN_SPRG2      274
+#define SPRN_SPRG3      275
+#define SPRN_EAR        282
+#define SPRN_PVR        287 /* Processor Version Register */
+#define SPRN_IBAT0U     528
+#define SPRN_IBAT0L     529
+#define SPRN_IBAT1U     530
+#define SPRN_IBAT1L     531
+#define SPRN_IBAT2U     532
+#define SPRN_IBAT2L     533
+#define SPRN_IBAT3U     534
+#define SPRN_IBAT3L     535
+#define SPRN_DBAT0U     536
+#define SPRN_DBAT0L     537
+#define SPRN_DBAT1U     538
+#define SPRN_DBAT1L     539
+#define SPRN_DBAT2U     540
+#define SPRN_DBAT2L     541
+#define SPRN_DBAT3U     542
+#define SPRN_DBAT3L     543
+
+#define SPRN_601_HID0   1008
+#define SPRN_601_HID1   1009
+#define SPRN_601_IABR   1010
+#define SPRN_601_DABR   1013

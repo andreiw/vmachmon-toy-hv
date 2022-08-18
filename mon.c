@@ -2,6 +2,7 @@
 #include "mon.h"
 #include "socket.h"
 #include "guest.h"
+#include "pmem.h"
 #include "vmm.h"
 #include "rom.h"
 
@@ -211,7 +212,7 @@ PICOL_COMMAND(dump) {
 }
 
 PICOL_COMMAND(memread) {
-  PICOL_ARITY2(argc == 2 || argc == 3, "mrc/mr8/mr6/mr32 ea ?count");
+  PICOL_ARITY2(argc == 2 || argc == 3, "prc/pr8/pr16/pr32/mrc/mr8/mr16/mr32 addr ?count");
 
   gea_t ea;
   count_t count = 1;
@@ -219,6 +220,7 @@ PICOL_COMMAND(memread) {
   char buf[PICOL_MAX_STR] = "";
   char formatted[sizeof("0xyyyyxxxx")];
   char t = argv[0][2];
+  bool virt = argv[0][0] == 'm';
 
   PICOL_SCAN_INT(ea, argv[1]);
   if (argc == 3) {
@@ -228,7 +230,8 @@ PICOL_COMMAND(memread) {
   while (count--) {
     if (t == '8' || t == 'c') {
       uint8_t v8;
-      err = guest_from_x(&v8, ea);
+      err = virt ? guest_from_x(&v8, ea) :
+        pmem_from_x(&v8, ea);
       if (err != ERR_NONE) {
         break;
       }
@@ -238,7 +241,8 @@ PICOL_COMMAND(memread) {
                      t == 'c' ? "%c" : "0x%02x", v8);
     } else if(t == '1') {
       uint16_t v16;
-      err = guest_from_x(&v16, ea);
+      err = virt ? guest_from_x(&v16, ea) :
+        pmem_from_x(&v16, ea);
       if (err != ERR_NONE) {
         break;
       }
@@ -247,7 +251,7 @@ PICOL_COMMAND(memread) {
       PICOL_SNPRINTF(formatted, sizeof(formatted), "0x%04x", v16);
     } else {
       uint32_t v;
-      err = guest_from_x(&v, ea);
+      err = virt ? guest_from_x(&v, ea) : pmem_from_x(&v, ea);
       if (err != ERR_NONE) {
         break;
       }
@@ -404,6 +408,10 @@ mon_init(void)
   picolRegisterCmd(interp, "mr16", picol_memread, NULL);
   picolRegisterCmd(interp, "mr32", picol_memread, NULL);
   picolRegisterCmd(interp, "mrc", picol_memread, NULL);
+  picolRegisterCmd(interp, "pr8", picol_memread, NULL);
+  picolRegisterCmd(interp, "pr16", picol_memread, NULL);
+  picolRegisterCmd(interp, "pr32", picol_memread, NULL);
+  picolRegisterCmd(interp, "prc", picol_memread, NULL);
   picolRegisterCmd(interp, "mrs", picol_memreadstring, NULL);
   picolRegisterCmd(interp, "d8", picol_dump, NULL);
   picolRegisterCmd(interp, "dc", picol_dump, NULL);

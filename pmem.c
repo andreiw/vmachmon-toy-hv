@@ -148,3 +148,4 @@ pmem_from(void *dest,
 {
   return pmem_from_ex(dest, src, bytes, access_size, false);
 }
+
