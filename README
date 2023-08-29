@@ -15,4 +15,4 @@ Running
 For little-endian operation, you need veneer.exe, run like `pvp -L`
 For big-endian operation, you need iquik.b, run like `pvp`
 To connect to console, something like `while true; do sleep 2; stty raw && nc localhost 7000; done`
-To connect to monitor, something like `while true; do sleep 2l nc localhost 7001; done`
+To connect to monitor, something like `while true; do sleep 2; nc localhost 7001; done`
