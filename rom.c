@@ -854,7 +854,6 @@ rom_getprop_ex(int node,
           break;
         }
 
-        WARN("writing base 0x%x to ea 0x%x", r->base, ea);
         err = guest_to(ea, &r->base, sizeof(cell_t), 1);
         ON_ERROR("base", err, done);
 
@@ -866,7 +865,6 @@ rom_getprop_ex(int node,
         }
 
         l = r->limit - r->base + 1;
-        WARN("writing size 0x%x to ea 0x%x", l, ea);
         err = guest_to(ea, &l, sizeof(cell_t), 1);
         ON_ERROR("size", err, done);
 
@@ -909,7 +907,6 @@ rom_getprop_ex(int node,
           break;
         }
 
-        WARN("writing base 0x%x to ea 0x%x", b, ea);
         err = guest_to(ea, &b, sizeof(cell_t), 1);
         ON_ERROR("base", err, done);
 
@@ -920,7 +917,6 @@ rom_getprop_ex(int node,
           break;
         }
 
-        WARN("writing base 0x%x to ea 0x%x", bs, ea);
         err = guest_to(ea, &bs, sizeof(cell_t), 1);
         ON_ERROR("size", err, done);
 
