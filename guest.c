@@ -216,17 +216,17 @@ guest_unmap_all(void)
 err_t
 guest_map(ha_t host_address, gea_t ea)
 {
-  vmm_return_code_t vmm_ret;
+  kern_return_t ret;
 
   BUG_ON((host_address & PAGE_MASK) != 0, "bad alignment");
   BUG_ON((ea & PAGE_MASK) != 0, "bad alignment");
 
-  vmm_ret = vmm_call(kVmmMapPage, guest->vmm->thread_index,
-                     host_address, ea, VM_PROT_ALL);
+  ret = vmm_call(kVmmMapPage, guest->vmm->thread_index,
+                 host_address, ea, VM_PROT_ALL);
 
-  ON_VMM_ERROR("kVmmMapPage", vmm_ret, out);
+  ON_MACH_ERROR("kVmmMapPage", ret, out);
  out:
-  if (vmm_ret != kVmmReturnNull) {
+  if (ret != KERN_SUCCESS) {
     return ERR_MACH;
   }
 
