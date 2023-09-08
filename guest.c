@@ -152,6 +152,12 @@ guest_init(bool little, length_t ram_size)
   }
 
   /*
+   * Set up the 601 TLBs.
+   * UTLB: 256-entry, two-way set-associative.
+   * ITLB: four entry.
+   */
+
+  /*
    * The only 601 register with a non-trivial
    * reset value.
    */
@@ -201,12 +207,10 @@ guest_unmap(gea_t ea)
 void
 guest_unmap_all(void)
 {
-  kern_return_t ret;
-
-  ret = vmm_call(kVmmUnmapAllPages, guest->vmm_mmu_on->thread_index);
-  if (ret != KERN_SUCCESS) {
-    WARN("failed to unmap all");
-  }
+  /*
+   * According to vmachmon.c, returns nothing.
+   */
+  vmm_call(kVmmUnmapAllPages, guest->vmm_mmu_on->thread_index);
 }
 
 err_t
@@ -220,10 +224,6 @@ guest_map(ha_t host_address, gea_t ea)
   vmm_ret = vmm_call(kVmmMapPage, guest->vmm->thread_index,
                      host_address, ea, VM_PROT_ALL);
 
-  /*
-   * Apparently (looking at the sources) this is a
-   * kern_return_t...
-   */
   ON_VMM_ERROR("kVmmMapPage", vmm_ret, out);
  out:
   if (vmm_ret != kVmmReturnNull) {
@@ -340,6 +340,35 @@ guest_to(gea_t dest,
   return ERR_NONE;
 }
 
+err_t
+guest_bat_fault(gea_t ea, gra_t *gra)
+{
+  int i;
+
+  BUG_ON(guest->pvr != PVR_601, "unsupported BAT handling");
+
+  /*
+   * BAT on 601 is enabled only when the matching
+   * SR T = 0 (i.e. not I/O controller interface
+   * segs). This is diferent from other PowerPC
+   * processors, as the OEA defines BAT always
+   * taking precedence over any segment translation,
+   * independent of the T bit.
+   */
+  if ((guest->sr[SR_INDEX(ea)] & SR_T) == 1) {
+    return ERR_UNSUPPORTED;
+  }
+
+  for (i = 0; i < ARRAY_LEN(guest->ubat); i += 2) {
+    uint32_t batu = guest->ubat[i];
+    uint32_t blpi = PPC_MASK_OFF (batu, 0, 14);
+
+    BUG_ON (blpi == PPC_MASK_OFF (ea, 0, 14), "BAT hit, implement BAT support");
+  }
+
+  return ERR_UNSUPPORTED;
+}
+
 static err_t
 guest_backmap_ex(gea_t ea, gra_t *gra, bool try_fast)
 {
@@ -373,7 +402,11 @@ guest_backmap_ex(gea_t ea, gra_t *gra, bool try_fast)
     return rom_fault(ea, gra);
   }
 
-  ERROR(ERR_UNSUPPORTED, "time to wire up BAT/SR/SDR1 decoding");
+  if (guest_bat_fault(ea, gra) == ERR_NONE) {
+    return ERR_NONE;
+  }
+
+  ERROR(ERR_UNSUPPORTED, "time to wire up SR/SDR1 decoding for 0x%lx (SDR1 0x%lx)", ea, guest->sdr1);
   return ERR_NOT_FOUND;
 }
 
@@ -482,7 +515,7 @@ guest_emulate(void)
 
   if ((insn & INST_TLBIE_MASK) == INST_TLBIE) {
     uint32_t nexti = 0;
-    int reg = MASK_OFF(insn, 15, 11);
+    int reg = PPC_MASK_OFF(insn, 16, 20);
     gea_t ea = R(reg);
     /*
      * Valid for NT, heh.
@@ -497,13 +530,13 @@ guest_emulate(void)
     }
     err = ERR_NONE;
   } if ((insn & INST_MFSR_MASK) == INST_MFSR) {
-    int reg = MASK_OFF(insn, 25, 21);
-    int sr = MASK_OFF(insn, 19, 16);
+    int reg = PPC_MASK_OFF(insn, 6, 10);
+    int sr = PPC_MASK_OFF(insn, 12, 15);
     R(reg) = guest->sr[sr];
     err = ERR_NONE;
   } else if ((insn & INST_MTSR_MASK) == INST_MTSR) {
-    int reg = MASK_OFF(insn, 25, 21);
-    int sr = MASK_OFF(insn, 19, 16);
+    int reg = PPC_MASK_OFF(insn, 6, 10);
+    int sr = PPC_MASK_OFF(insn, 12, 15);
     guest->sr[sr] = R(reg);
     err = ERR_NONE;
   } else if ((insn & INST_RFI_MASK) == INST_RFI) {
@@ -512,8 +545,8 @@ guest_emulate(void)
     guest->regs->ppcPC = guest->srr0;
     err = ERR_NONE;
   } else if ((insn & INST_MFSPR_MASK) == INST_MFSPR) {
-    int reg = MASK_OFF(insn, 25, 21);
-    int spr = MASK_OFF(insn, 20, 11);
+    int reg = PPC_MASK_OFF(insn, 6, 10);
+    int spr = PPC_MASK_OFF(insn, 11, 20);
     spr = ((spr & 0x1f) << 5) | ((spr & 0x3e0) >> 5);
     switch (spr) {
     case SPRN_PVR:
@@ -574,8 +607,8 @@ guest_emulate(void)
       return ERR_UNSUPPORTED;
     }
   } else if ((insn & INST_MTSPR_MASK) == INST_MTSPR) {
-    int reg = MASK_OFF(insn, 25, 21);
-    int spr = MASK_OFF(insn, 20, 11);
+    int reg = PPC_MASK_OFF(insn, 6, 10);
+    int spr = PPC_MASK_OFF(insn, 11, 20);
     spr = ((spr & 0x1f) << 5) | ((spr & 0x3e0) >> 5);
     switch (spr) {
     case SPRN_SRR0:
@@ -609,6 +642,13 @@ guest_emulate(void)
       break;
     }
     case SPRN_SDR1: {
+      if (R(reg) != SDR1_MAGIC_ROM_MODE &&
+          guest->sdr1 == SDR1_MAGIC_ROM_MODE) {
+        /*
+         * Since this doesn't use the regular SR/HTAB/BAT path.
+         */
+        guest_unmap_all();
+      }
       guest->sdr1 = R(reg);
       err = ERR_NONE;
       break;
@@ -619,11 +659,11 @@ guest_emulate(void)
       return ERR_UNSUPPORTED;
     }
   } else if ((insn & INST_MFMSR_MASK) == INST_MFMSR) {
-    int reg = MASK_OFF(insn, 25, 21);
+    int reg = PPC_MASK_OFF(insn, 6, 10);
     R(reg) = guest->msr;
     err = ERR_NONE;
   } else if ((insn & INST_MTMSR_MASK) == INST_MTMSR) {
-    int reg = MASK_OFF(insn, 25, 21);
+    int reg = PPC_MASK_OFF(insn, 6, 10);
     guest_set_msr(R(reg));
     err = ERR_NONE;
   }

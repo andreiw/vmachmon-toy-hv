@@ -26,11 +26,18 @@
 #define SIFY(...) _SIFY(__VA_ARGS__)
 #define _SIFY(...) #__VA_ARGS__
 
+/* IBM describes bits with 0 being most significant */
+#define PPC_BITS(x) (1UL << (31 - x))
+
 /* Mask off and return a bit slice. */
-#define MASK_OFF(value, larger, smaller) (((value) >> (smaller)) & ((1U << ((larger) + 1U - (smaller))) - 1U))
+#define _MASK_OFF(value, larger, smaller) (((value) >> (smaller)) & ((1UL << ((larger) + 1U - (smaller))) - 1U))
+#define MASK_OFF(value, a, b) _MASK_OFF(value, max((a), (b)), min((a), (b)))
+#define PPC_MASK_OFF(value, a, b) MASK_OFF(value, 31 - a, 31 - b)
 
 /* Form a bit slice. */
-#define MASK_IN(value, larger, smaller) (((value) & ((1U << ((larger) + 1U - (smaller))) - 1U)) << (smaller))
+#define _MASK_IN(value, larger, smaller) (((value) & ((1U << ((larger) + 1UL - (smaller))) - 1U)) << (smaller))
+#define MASK_IN(value, a, b) _MASK_IN(value, max((a), (b)), min((a), (b)))
+#define PPC_MASK_IN(value, a, b) MASK_IN(value, 31 - a, 31 - b)
 
 #define ARRAY_LEN(x) (sizeof((x)) / sizeof((x)[0]))
 

@@ -1,7 +1,5 @@
 #pragma once
 
-#define PPC_BITS(x) (1UL << (31 - x))
-
 #define MSR_EE  PPC_BITS(16)  /* Extern Interrupts */
 #define MSR_PR  PPC_BITS(17)  /* Privilege */
 #define MSR_FP  PPC_BITS(18)  /* FP */
@@ -32,9 +30,9 @@
 #define SR_INDEX(ea)            (ea >> 28)
 #define SR_INDEX_TO_EA(index)   ((uint64_t) index << 28)
 #define SR_COUNT                16
-#define SR_T                    (1U << (31 - 0))
-#define SR_KP                   (1U << (31 - 1))
-#define SR_KS                   (1U << (31 - 2))
+#define SR_T                    PPC_BITS(0)
+#define SR_KS                   PPC_BITS(1)
+#define SR_KU                   PPC_BITS(2)
 #define SR_VSID_MASK            0xFFFFFF
 #define SR_VSID_SHIFT           0
 
