@@ -1,6 +1,7 @@
 #define LOG_PFX PMEM
 #include "pvp.h"
 #include "guest.h"
+#include "pmem.h"
 
 static ha_t pmem;
 static length_t pmem_bytes;
@@ -91,13 +92,15 @@ pmem_from_ex(void *dest,
              gra_t src,
              length_t bytes,
              length_t access_size,
-             bool nul_term)
+             uint32_t flags)
 {
   /*
    * If nul_term is set, will return bytes copied
    * *not* including the NUL (but the NUL will be
    * copied).
    */
+  bool nul_term = (flags & PMEM_FROM_NUL_TERM) != 0;
+  bool force_be = (flags & PMEM_FROM_FORCE_BE) != 0;
 
   if (src >= pmem_bytes) {
     return 0;
@@ -111,7 +114,7 @@ pmem_from_ex(void *dest,
   BUG_ON(access_size != 1 && access_size != 2 && access_size != 4,
          "bad access_size");
 
-  if (guest_is_little()) {
+  if (guest_is_little() && !force_be) {
     unsigned i;
     ha_t s = pmem + src;
 
@@ -146,6 +149,6 @@ pmem_from(void *dest,
           length_t bytes,
           length_t access_size)
 {
-  return pmem_from_ex(dest, src, bytes, access_size, false);
+  return pmem_from_ex(dest, src, bytes, access_size, 0);
 }
 

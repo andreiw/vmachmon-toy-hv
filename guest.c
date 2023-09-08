@@ -269,7 +269,8 @@ guest_from_ex(void *dest,
       break;
     }
 
-    xferred = pmem_from_ex(d, gra, xfer_size, access_size, nul_term);
+    xferred = pmem_from_ex(d, gra, xfer_size, access_size, nul_term ?
+                           PMEM_FROM_NUL_TERM : 0);
     left -= xferred;
 
     if (xferred != xfer_size) {
