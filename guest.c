@@ -362,9 +362,9 @@ guest_bat_fault(gea_t ea, gra_t *gra)
 
   for (i = 0; i < ARRAY_LEN(guest->ubat); i += 2) {
     uint32_t batu = guest->ubat[i];
-    uint32_t blpi = PPC_MASK_OFF (batu, 0, 14);
+    uint32_t blpi = PPC_MASK_OUT (batu, 0, 14);
 
-    BUG_ON (blpi == PPC_MASK_OFF (ea, 0, 14), "BAT hit, implement BAT support");
+    BUG_ON (blpi == PPC_MASK_OUT (ea, 0, 14), "BAT hit, implement BAT support");
   }
 
   return ERR_UNSUPPORTED;
@@ -407,7 +407,8 @@ guest_backmap_ex(gea_t ea, gra_t *gra, bool try_fast)
     return ERR_NONE;
   }
 
-  ERROR(ERR_UNSUPPORTED, "time to wire up SR/SDR1 decoding for 0x%lx (SDR1 0x%lx)", ea, guest->sdr1);
+  ERROR(ERR_UNSUPPORTED, "time to wire up SR/SDR1 decoding for 0x%lx (HTABORG 0x%lx MASK 0x%lx)", ea, PPC_MASK_OFF(guest->sdr1, 0, 15), PPC_MASK_OUT(guest->sdr1, 23, 31))
+;
   return ERR_NOT_FOUND;
 }
 
@@ -516,7 +517,7 @@ guest_emulate(void)
 
   if ((insn & INST_TLBIE_MASK) == INST_TLBIE) {
     uint32_t nexti = 0;
-    int reg = PPC_MASK_OFF(insn, 16, 20);
+    int reg = PPC_MASK_OUT(insn, 16, 20);
     gea_t ea = R(reg);
     /*
      * Valid for NT, heh.
@@ -531,13 +532,13 @@ guest_emulate(void)
     }
     err = ERR_NONE;
   } if ((insn & INST_MFSR_MASK) == INST_MFSR) {
-    int reg = PPC_MASK_OFF(insn, 6, 10);
-    int sr = PPC_MASK_OFF(insn, 12, 15);
+    int reg = PPC_MASK_OUT(insn, 6, 10);
+    int sr = PPC_MASK_OUT(insn, 12, 15);
     R(reg) = guest->sr[sr];
     err = ERR_NONE;
   } else if ((insn & INST_MTSR_MASK) == INST_MTSR) {
-    int reg = PPC_MASK_OFF(insn, 6, 10);
-    int sr = PPC_MASK_OFF(insn, 12, 15);
+    int reg = PPC_MASK_OUT(insn, 6, 10);
+    int sr = PPC_MASK_OUT(insn, 12, 15);
     guest->sr[sr] = R(reg);
     err = ERR_NONE;
   } else if ((insn & INST_RFI_MASK) == INST_RFI) {
@@ -546,8 +547,8 @@ guest_emulate(void)
     guest->regs->ppcPC = guest->srr0;
     err = ERR_NONE;
   } else if ((insn & INST_MFSPR_MASK) == INST_MFSPR) {
-    int reg = PPC_MASK_OFF(insn, 6, 10);
-    int spr = PPC_MASK_OFF(insn, 11, 20);
+    int reg = PPC_MASK_OUT(insn, 6, 10);
+    int spr = PPC_MASK_OUT(insn, 11, 20);
     spr = ((spr & 0x1f) << 5) | ((spr & 0x3e0) >> 5);
     switch (spr) {
     case SPRN_PVR:
@@ -608,8 +609,8 @@ guest_emulate(void)
       return ERR_UNSUPPORTED;
     }
   } else if ((insn & INST_MTSPR_MASK) == INST_MTSPR) {
-    int reg = PPC_MASK_OFF(insn, 6, 10);
-    int spr = PPC_MASK_OFF(insn, 11, 20);
+    int reg = PPC_MASK_OUT(insn, 6, 10);
+    int spr = PPC_MASK_OUT(insn, 11, 20);
     spr = ((spr & 0x1f) << 5) | ((spr & 0x3e0) >> 5);
     switch (spr) {
     case SPRN_SRR0:
@@ -660,11 +661,11 @@ guest_emulate(void)
       return ERR_UNSUPPORTED;
     }
   } else if ((insn & INST_MFMSR_MASK) == INST_MFMSR) {
-    int reg = PPC_MASK_OFF(insn, 6, 10);
+    int reg = PPC_MASK_OUT(insn, 6, 10);
     R(reg) = guest->msr;
     err = ERR_NONE;
   } else if ((insn & INST_MTMSR_MASK) == INST_MTMSR) {
-    int reg = PPC_MASK_OFF(insn, 6, 10);
+    int reg = PPC_MASK_OUT(insn, 6, 10);
     guest_set_msr(R(reg));
     err = ERR_NONE;
   }

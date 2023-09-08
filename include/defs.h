@@ -29,10 +29,15 @@
 /* IBM describes bits with 0 being most significant */
 #define PPC_BITS(x) (1UL << (31 - x))
 
-/* Mask off and return a bit slice. */
-#define _MASK_OFF(value, larger, smaller) (((value) >> (smaller)) & ((1UL << ((larger) + 1U - (smaller))) - 1U))
+/* Mask off a field value. */
+#define _MASK_OFF(value, larger, smaller) ((value) & (((1UL << ((larger) + 1U - (smaller))) - 1U) << (smaller)))
 #define MASK_OFF(value, a, b) _MASK_OFF(value, max((a), (b)), min((a), (b)))
 #define PPC_MASK_OFF(value, a, b) MASK_OFF(value, 31 - a, 31 - b)
+
+/* Mask off and shift, returning a bit slice. */
+#define _MASK_OUT(value, larger, smaller) (((value) >> (smaller)) & ((1UL << ((larger) + 1U - (smaller))) - 1U))
+#define MASK_OUT(value, a, b) _MASK_OUT(value, max((a), (b)), min((a), (b)))
+#define PPC_MASK_OUT(value, a, b) MASK_OUT(value, 31 - a, 31 - b)
 
 /* Form a bit slice. */
 #define _MASK_IN(value, larger, smaller) (((value) & ((1U << ((larger) + 1UL - (smaller))) - 1U)) << (smaller))
