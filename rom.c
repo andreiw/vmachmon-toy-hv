@@ -580,10 +580,21 @@ rom_mmu_call(gea_t cia,
   err = guest_from_x(&phys, CIA_ARG(5));
   ON_ERROR("mmap phys", err, done);
 
-  if (mode != -1) {
-    WARN("mmu map phys 0x%x virt 0x%x size 0x%x mode 0x%x",
-         phys, virt, size, mode);
+  if (mode == -2) {
+    /*
+     * Seen with veneer.exe. Weird.
+     */
+    WARN("treating non-standard mode %d as -1", (int) mode);
+    mode = -1;
   }
+
+  /*
+   * For default mode (-1), the values for WIMGxPP
+   * for memory shall be W=0, I=0, M=0, G=1, PP=10.
+   * For I/O, these shall be W=1, I=1, M=0, G=1, PP=10.
+   */
+  BUG_ON(mode != -1, "non-default mode 0x%x not supported",
+         mode);
 
   if (phys == virt) {
     return ERR_NONE;
@@ -1709,7 +1720,8 @@ done:
 
 err_t
 rom_fault(gea_t gea,
-          gra_t *gra)
+          gra_t *gra,
+          guest_fault_t flags)
 {
   mmu_range_t *m = mmu_range_find(&rom_mmu_ranges, gea);
 
@@ -1717,6 +1729,13 @@ rom_fault(gea_t gea,
     return ERR_NOT_FOUND;
   }
 
+  /*
+   * guest_fault_t is unused here as all ROM
+   * mappings seen today are done with default
+   * mode, so nothing to check.
+   *
+   * See rom_mmu_call for details.
+   */
   *gra = gea - m->base + m->ra;
   return ERR_NONE;
 }

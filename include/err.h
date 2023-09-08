@@ -10,6 +10,7 @@
   ERR_DEF(ERR_UNSUPPORTED, "not supported")                           \
   ERR_DEF(ERR_NO_MEM, "no memory")                                    \
   ERR_DEF(ERR_NOT_FOUND, "not found")                                 \
+  ERR_DEF(ERR_PERM, "permission fault")                               \
   ERR_DEF(ERR_MACH, "Mach error")                                     \
   ERR_DEF(ERR_SHUTDOWN, "Requested shutdown")                         \
   ERR_DEF(ERR_CONTINUE, "Continue VM execution")                      \

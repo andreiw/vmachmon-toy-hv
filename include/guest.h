@@ -44,7 +44,11 @@ err_t guest_to(gra_t dest, const void *src, length_t bytes,
                length_t access_size);
 bool guest_toggle_ss(void);
 err_t guest_emulate(void);
-err_t guest_fault(void);
+err_t guest_fault(bool isi);
+
+#define GUEST_FAULT_ON_ISI   0x1
+#define GUEST_FAULT_ON_STORE 0x2
+typedef uint32_t guest_fault_t;
 
 #define guest_to_x(dest, src) guest_to(dest, src, sizeof(*(src)), sizeof(*(src)))
 #define guest_from_x(dest, src) guest_from(dest, src, sizeof(*(dest)), sizeof(*(dest)))

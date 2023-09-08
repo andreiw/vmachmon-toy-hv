@@ -79,7 +79,7 @@ main(int argc, char **argv)
       goto unhandled;
     case kVmmReturnDataPageFault:
     case kVmmReturnInstrPageFault:
-      err = guest_fault();
+      err = guest_fault(vmm_ret == kVmmReturnInstrPageFault);
       if (err != ERR_NONE) {
         goto unhandled;
       }

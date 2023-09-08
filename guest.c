@@ -20,6 +20,8 @@ guest_mon_dump(void)
   mon_printf("  MSR                   = 0x%08x\n", guest->regs->ppcMSR);
   mon_printf("  vmm_state_page_t *vmm = mmu_o%s\n",
              guest->vmm == guest->vmm_mmu_on ? "n" : "ff");
+  mon_printf("  vmmStat               = 0x%x\n", guest->vmm->vmmStat);
+  mon_printf("  vmmCntrl              = 0x%x\n", guest->vmm->vmmCntrl);
   mon_printf("  return_code           = 0x%08x (%s)\n",
       guest->vmm->return_code, vmm_return_code_to_string(guest->vmm->return_code));
 
@@ -342,7 +344,8 @@ guest_to(gea_t dest,
 }
 
 err_t
-guest_bat_fault(gea_t ea, gra_t *gra)
+guest_bat_fault(gea_t ea, gra_t *gra,
+                guest_fault_t flags)
 {
   int i;
 
@@ -364,6 +367,9 @@ guest_bat_fault(gea_t ea, gra_t *gra)
     uint32_t batu = guest->ubat[i];
     uint32_t blpi = PPC_MASK_OUT (batu, 0, 14);
 
+    /*
+     * Still need to implement handling.
+     */
     BUG_ON (blpi == PPC_MASK_OUT (ea, 0, 14), "BAT hit, implement BAT support");
   }
 
@@ -371,7 +377,9 @@ guest_bat_fault(gea_t ea, gra_t *gra)
 }
 
 static err_t
-guest_backmap_ex(gea_t ea, gra_t *gra, bool try_fast)
+guest_backmap_ex(gea_t ea, gra_t *gra,
+                 bool try_fast,
+                 guest_fault_t flags)
 {
   ha_t ha_base;
   gea_t offset = ea & PAGE_MASK;
@@ -400,10 +408,10 @@ guest_backmap_ex(gea_t ea, gra_t *gra, bool try_fast)
   }
 
   if (guest->sdr1 == SDR1_MAGIC_ROM_MODE) {
-    return rom_fault(ea, gra);
+    return rom_fault(ea, gra, flags);
   }
 
-  if (guest_bat_fault(ea, gra) == ERR_NONE) {
+  if (guest_bat_fault(ea, gra, flags) == ERR_NONE) {
     return ERR_NONE;
   }
 
@@ -415,11 +423,11 @@ guest_backmap_ex(gea_t ea, gra_t *gra, bool try_fast)
 err_t
 guest_backmap(gea_t ea, gra_t *gra)
 {
-  return guest_backmap_ex(ea, gra, true);
+  return guest_backmap_ex(ea, gra, true, 0);
 }
 
 err_t
-guest_fault(void)
+guest_fault(bool isi)
 {
   gea_t gea;
   gra_t gra;
@@ -431,8 +439,31 @@ guest_fault(void)
   gea = return_params32[0] & ~PAGE_MASK;
   dsisr = return_params32[1];
 
+  /*
+   * A permission fault needs to be handled by being fowarded
+   * to the guest.
+   */
+  BUG_ON ((dsisr & DSISR_BAD_PERM) != 0, "inject exception");
+
   if ((dsisr & DSISR_NOT_PRESENT) != 0) {
-    err = guest_backmap_ex(gea, &gra, false);
+    uint32_t flags = 0;
+
+    if (isi) {
+      flags |= GUEST_FAULT_ON_ISI;
+    }
+
+    if ((dsisr & DSISR_STORE) != 0) {
+      flags |= GUEST_FAULT_ON_STORE;
+    }
+
+    err = guest_backmap_ex(gea, &gra, false, flags);
+    /*
+     * A permission fault detected while looking up
+     * a mapping needs to be handled by being fowarded
+     * to the guest.
+     */
+    BUG_ON (err == ERR_PERM, "inject exception");
+
     if (err != ERR_NONE) {
       ERROR(err, "guest_backmap_ex");
       return err;
